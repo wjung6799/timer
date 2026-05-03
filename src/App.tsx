@@ -3,23 +3,33 @@ import type { Session } from "@supabase/supabase-js";
 import {
   type AppState,
   type Category,
+  type DefaultCategory,
+  type WeekdayDefaults,
   DAY_SEC,
+  DEFAULT_POMO_SEC,
   PALETTE,
-  POMODORO_MS,
+  categoriesFromDefaults,
+  commitActive,
   cryptoId,
   defaultState,
+  defaultsForWeekday,
   effectiveBudget,
+  ensureSpecialCategories,
   fmtBudget,
   fmtDuration,
   normalizeRemoteState,
   parseBudget,
+  pomoSecOf,
+  rollOver,
   todayStr,
+  todayWeekday,
 } from "./types";
 import { playPomoDone, playStart, playStop, startAlarm } from "./sounds";
-import { archiveDay, loadState, saveState } from "./db";
+import { archiveDay, deleteAccount, loadState, saveState, wipeAllData } from "./db";
 import { supabase } from "./supabase";
 import Auth from "./Auth";
 import History from "./History";
+import Settings from "./Settings";
 import "./App.css";
 
 export default function App() {
@@ -66,7 +76,7 @@ function BudgetApp({
 }) {
   const [state, setState] = useState<AppState | null>(null);
   const [now, setNow] = useState<number>(() => Date.now());
-  const [view, setView] = useState<"today" | "history">("today");
+  const [view, setView] = useState<"today" | "history" | "settings">("today");
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const alarmStopRef = useRef<(() => void) | null>(null);
   const stateRef = useRef<AppState | null>(null);
@@ -85,18 +95,19 @@ function BudgetApp({
           await saveState(userId, fresh);
           return;
         }
-        // If state is from an earlier day, archive it to history before resetting.
         if (loaded.date !== todayStr()) {
+          // Day rolled over while offline — commit yesterday up to midnight,
+          // archive it, and possibly carry the active timer into today.
+          const { committed, next } = rollOver(loaded);
           try {
-            await archiveDay(userId, loaded.date, loaded.categories);
+            await archiveDay(userId, loaded.date, committed.categories);
           } catch (e) {
             console.error("Failed to archive previous day:", e);
           }
-        }
-        const normalized = normalizeRemoteState(loaded);
-        setState(normalized);
-        if (normalized.date !== loaded.date) {
-          await saveState(userId, normalized);
+          setState(next);
+          await saveState(userId, next);
+        } else {
+          setState(normalizeRemoteState(loaded));
         }
       } catch (e) {
         if (!cancelled) setLoadErr(e instanceof Error ? e.message : String(e));
@@ -157,18 +168,11 @@ function BudgetApp({
       setNow(Date.now());
       const s = stateRef.current;
       if (s && s.date !== todayStr()) {
-        const committed = commitActive(s, Date.now());
+        const { committed, next } = rollOver(s);
         archiveDay(userId, s.date, committed.categories).catch((e) =>
           console.error("History write failed:", e),
         );
-        setState({
-          ...committed,
-          date: todayStr(),
-          categories: committed.categories.map((c) => ({ ...c, spentSec: 0, completed: false })),
-          activeId: null,
-          activeStartedAt: null,
-          pomoEndAt: null,
-        });
+        setState(next);
       }
     }, 1000);
     return () => window.clearInterval(id);
@@ -221,13 +225,15 @@ function BudgetApp({
   const startPomodoro = (id: string) => {
     setState((s) => {
       if (!s) return s;
+      const target = s.categories.find((c) => c.id === id);
+      const pomoMs = (target ? pomoSecOf(target) : DEFAULT_POMO_SEC) * 1000;
       const stopped = commitActive(s, Date.now());
       if (!s.muted) playStart();
       return {
         ...stopped,
         activeId: id,
         activeStartedAt: Date.now(),
-        pomoEndAt: Date.now() + POMODORO_MS,
+        pomoEndAt: Date.now() + pomoMs,
       };
     });
   };
@@ -315,6 +321,54 @@ function BudgetApp({
     await supabase.auth.signOut();
   };
 
+  const updateDefaults = (defaults: DefaultCategory[]) => {
+    setState((s) => (s ? { ...s, defaults } : s));
+  };
+
+  const updateWeekdayDefaults = (weekdayDefaults: WeekdayDefaults) => {
+    setState((s) => (s ? { ...s, weekdayDefaults } : s));
+  };
+
+  const resetToday = () => {
+    setState((s) => {
+      if (!s) return s;
+      const wd = todayWeekday();
+      const defs = defaultsForWeekday(s, wd);
+      return {
+        date: todayStr(),
+        categories: ensureSpecialCategories(categoriesFromDefaults(defs)),
+        activeId: null,
+        activeStartedAt: null,
+        pomoEndAt: null,
+        muted: s.muted,
+        defaults: s.defaults,
+        weekdayDefaults: s.weekdayDefaults,
+      };
+    });
+    setView("today");
+  };
+
+  const clearAllData = async () => {
+    await wipeAllData(userId);
+    const fresh = defaultState();
+    // Keep the user's edited defaults across a wipe.
+    if (state?.defaults && state.defaults.length > 0) {
+      fresh.defaults = state.defaults;
+      fresh.categories = ensureSpecialCategories(
+        categoriesFromDefaults(state.defaults),
+      );
+    }
+    setState(fresh);
+    await saveState(userId, fresh);
+    setView("today");
+  };
+
+  const deleteAccountAction = async () => {
+    if (!userId) return;
+    await deleteAccount();
+    // Auth state listener will flip session to null and remount.
+  };
+
   const userCats = state.categories.filter((c) => !c.isIdle);
   const totalSpent = userCats.reduce((sum, c) => sum + liveSpent(c, state, now), 0);
   const nowDate = new Date(now);
@@ -338,14 +392,22 @@ function BudgetApp({
         <h1>Time Budget</h1>
         <div className="header-right">
           <button
-            className="btn-icon"
+            className={`btn-icon ${view === "history" ? "btn-active" : ""}`}
             onClick={() => setView(view === "history" ? "today" : "history")}
             title={view === "history" ? "Back to today" : "View past days"}
           >
             {view === "history" ? "Today" : "History"}
           </button>
           <button
-            className="btn-mute"
+            className={`btn-icon-only ${view === "settings" ? "btn-active" : ""}`}
+            onClick={() => setView(view === "settings" ? "today" : "settings")}
+            aria-label={view === "settings" ? "Back to today" : "Settings"}
+            title={view === "settings" ? "Back to today" : "Settings"}
+          >
+            <GearIcon />
+          </button>
+          <button
+            className="btn-icon-only"
             onClick={toggleMute}
             aria-label={state.muted ? "Unmute sounds" : "Mute sounds"}
             title={state.muted ? "Sound off" : "Sound on"}
@@ -417,8 +479,19 @@ function BudgetApp({
 
           <AddCategoryForm onAdd={addCategory} />
         </>
-      ) : (
+      ) : view === "history" ? (
         <History userId={userId} />
+      ) : (
+        <Settings
+          defaults={state.defaults}
+          weekdayDefaults={state.weekdayDefaults}
+          signedIn={!!userId}
+          onUpdateDefaults={updateDefaults}
+          onUpdateWeekdayDefaults={updateWeekdayDefaults}
+          onResetToday={resetToday}
+          onClearAllData={clearAllData}
+          onDeleteAccount={deleteAccountAction}
+        />
       )}
     </div>
   );
@@ -452,24 +525,29 @@ function liveSpent(c: Category, s: AppState, now: number): number {
   return c.spentSec;
 }
 
-function commitActive(s: AppState, atMs: number): AppState {
-  if (!s.activeId || !s.activeStartedAt) return s;
-  const elapsed = Math.floor((atMs - s.activeStartedAt) / 1000);
-  if (elapsed <= 0) return { ...s, activeId: null, activeStartedAt: null };
-  return {
-    ...s,
-    categories: s.categories.map((c) =>
-      c.id === s.activeId ? { ...c, spentSec: c.spentSec + elapsed } : c
-    ),
-    activeId: null,
-    activeStartedAt: null,
-  };
-}
-
 function fmtMmSs(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function GearIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
 }
 
 function SpeakerIcon({ muted }: { muted: boolean }) {
@@ -604,6 +682,8 @@ function CategoryRow({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(category.name);
   const [budget, setBudget] = useState(fmtBudget(displayBudget));
+  const [pomo, setPomo] = useState(fmtBudget(pomoSecOf(category)));
+  const [editErr, setEditErr] = useState<string | null>(null);
 
   const pct = isIdle
     ? Math.min(100, (liveSpent / DAY_SEC) * 100)
@@ -613,10 +693,31 @@ function CategoryRow({
   const over = !isIdle && liveSpent > category.budgetSec;
   const remaining = displayBudget - liveSpent;
 
+  const beginEdit = () => {
+    setName(category.name);
+    setBudget(fmtBudget(displayBudget));
+    setPomo(fmtBudget(pomoSecOf(category)));
+    setEditErr(null);
+    setEditing(true);
+  };
+
   const saveEdit = () => {
     const newBudget = parseBudget(budget);
-    if (newBudget == null || newBudget <= 0) return;
-    onUpdate({ name: name.trim() || category.name, budgetSec: newBudget });
+    if (newBudget == null || newBudget <= 0) {
+      setEditErr("Budget like '1h', '30m', '1h 30m'");
+      return;
+    }
+    const newPomo = parseBudget(pomo);
+    if (newPomo == null || newPomo <= 0) {
+      setEditErr("Pomo like '25m', '50m'");
+      return;
+    }
+    onUpdate({
+      name: name.trim() || category.name,
+      budgetSec: newBudget,
+      pomoSec: newPomo,
+    });
+    setEditErr(null);
     setEditing(false);
   };
 
@@ -626,23 +727,40 @@ function CategoryRow({
       <div className="cat-main">
         <div className="cat-header">
           {editing ? (
-            <>
+            <div className="cat-edit-form">
               <input
                 className="cat-name-input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                placeholder="Name"
                 aria-label="Category name"
               />
-              <input
-                className="cat-budget-input"
-                value={budget}
-                onChange={(e) => setBudget(e.target.value)}
-                placeholder="e.g. 1h 30m"
-                aria-label="Budget"
-              />
-              <button onClick={saveEdit}>Save</button>
-              <button onClick={() => setEditing(false)}>Cancel</button>
-            </>
+              <label className="cat-edit-field">
+                <span className="cat-edit-label">Budget</span>
+                <input
+                  className="cat-budget-input"
+                  value={budget}
+                  onChange={(e) => setBudget(e.target.value)}
+                  placeholder="e.g. 1h 30m"
+                  aria-label="Budget"
+                />
+              </label>
+              <label className="cat-edit-field">
+                <span className="cat-edit-label">Pomo</span>
+                <input
+                  className="cat-budget-input"
+                  value={pomo}
+                  onChange={(e) => setPomo(e.target.value)}
+                  placeholder="e.g. 25m"
+                  aria-label="Pomodoro length"
+                />
+              </label>
+              <div className="cat-edit-actions">
+                <button className="btn-primary" onClick={saveEdit}>Save</button>
+                <button onClick={() => setEditing(false)}>Cancel</button>
+              </div>
+              {editErr && <span className="form-error">{editErr}</span>}
+            </div>
           ) : (
             <>
               <span className="cat-name">
@@ -703,12 +821,18 @@ function CategoryRow({
                   <button className="btn-start" onClick={onStart}>Start</button>
                 )}
                 {showPomoButton && !isActive && (
-                  <button className="btn-pomo" onClick={onPomo} title="Start a 25-minute focus block">Pomo</button>
+                  <button
+                    className="btn-pomo"
+                    onClick={onPomo}
+                    title={`Start a ${fmtBudget(pomoSecOf(category))} focus block`}
+                  >
+                    Pomo
+                  </button>
                 )}
                 {showDoneButton && (
                   <button className="btn-done" onClick={onComplete} title="Mark complete and return remaining budget to Open">Done</button>
                 )}
-                <button className="btn-icon" onClick={() => setEditing(true)}>Edit</button>
+                <button className="btn-icon" onClick={beginEdit}>Edit</button>
                 <button className="btn-icon btn-danger" onClick={onRemove} aria-label="Remove">×</button>
               </>
             )}

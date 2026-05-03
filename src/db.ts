@@ -123,3 +123,26 @@ export async function loadHistory(
   if (!userId) return readLocalHistory().slice(0, limit);
   return listRemoteHistory(userId, limit);
 }
+
+export async function wipeAllData(userId: string | null): Promise<void> {
+  if (!userId) {
+    localStorage.removeItem(LS_STATE_KEY);
+    localStorage.removeItem(LS_HISTORY_KEY);
+    return;
+  }
+  const [stateRes, histRes] = await Promise.all([
+    supabase.from("app_state").delete().eq("user_id", userId),
+    supabase.from("day_history").delete().eq("user_id", userId),
+  ]);
+  if (stateRes.error) throw stateRes.error;
+  if (histRes.error) throw histRes.error;
+}
+
+// Permanently deletes the signed-in user's auth row.
+// Cascade removes app_state and day_history rows automatically.
+export async function deleteAccount(): Promise<void> {
+  const { error } = await supabase.rpc("delete_user");
+  if (error) throw error;
+  // Best-effort sign-out; the auth row is already gone.
+  await supabase.auth.signOut().catch(() => {});
+}
