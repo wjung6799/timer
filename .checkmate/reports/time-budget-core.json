@@ -1,0 +1,59 @@
+{
+  "spec_name": "time-budget-core",
+  "steps": [
+    {
+      "step": "Initial load shows header, day summary, and three default categories",
+      "status": "pass",
+      "reasoning": "Header shows \"Time Budget\" with date 2026-05-03. Day summary shows Allotted 17h, Spent 00:00:00, Day remaining 24:00:00, Unallotted 7h. Three categories visible: Work (8h), Sleep (8h), Exercise (1h), each with 0 spent and full budget remaining.",
+      "screenshot_path": "screenshots/2026-05-03T08-00-22.100Z_step_0.png",
+      "timestamp": "2026-05-03T08:00:22.101Z"
+    },
+    {
+      "step": "Start Work timer ticks up and shows active state",
+      "status": "pass",
+      "reasoning": "Work row has accent border, Start became Stop, spent reads 00:00:08, day summary \"Spent today\" reads 00:00:08, \"Day remaining\" reads 23:59:52. Live tick works.",
+      "screenshot_path": "screenshots/2026-05-03T08-00-38.010Z_step_1.png",
+      "timestamp": "2026-05-03T08:00:38.010Z"
+    },
+    {
+      "step": "Starting another timer auto-stops the current one",
+      "status": "pass",
+      "reasoning": "Work froze at 00:00:15 with Start button restored, Exercise now has the active border + Stop button + ticking 00:00:06. Day spent = 00:00:21 (15+6). Single-active enforcement works.",
+      "screenshot_path": "screenshots/2026-05-03T08-00-54.812Z_step_2.png",
+      "timestamp": "2026-05-03T08:00:54.812Z"
+    },
+    {
+      "step": "Add a new category persists with proper budget",
+      "status": "pass",
+      "reasoning": "Reading category appended with 30m budget, fresh 0:00 spent, distinct color. Allotted updated to 17h 30m. Unallotted dropped from 7h to 6h 30m. Form cleared after submit (focus on first input).",
+      "screenshot_path": "screenshots/2026-05-03T08-01-18.082Z_step_3.png",
+      "timestamp": "2026-05-03T08:01:18.082Z"
+    },
+    {
+      "step": "Edit category budget; over-budget shows red warning UI",
+      "status": "pass",
+      "reasoning": "Edit changed Exercise from 1h to 10s and persisted on Save. With 16s already spent, the row shows a red border, red \"00:00:16 / 10s\" times, fully-red bar with hatched stripe for the 6s overage, and \"Over by 00:00:06\" footer. State also survived a page reload (Work 00:00:15 and Exercise 00:00:16 retained).",
+      "screenshot_path": "screenshots/2026-05-03T08-02-35.793Z_step_4.png",
+      "timestamp": "2026-05-03T08:02:35.793Z"
+    },
+    {
+      "step": "Remove a category",
+      "status": "pass",
+      "reasoning": "Reading category vanished from list. Allotted dropped from 17h 15m to 16h (1h 15m removed). Unallotted recalculated to 7h 59m (24h - 16h - 10s ≈ 8h - 10s = 7h 59m 50s, displayed as 7h 59m).",
+      "screenshot_path": "screenshots/2026-05-03T08-02-46.650Z_step_5.png",
+      "timestamp": "2026-05-03T08:02:46.651Z"
+    },
+    {
+      "step": "Sound effects + mute toggle",
+      "status": "pass",
+      "reasoning": "Mute toggle in header swaps speaker icon (with X when muted) and persists the muted flag. Start/Stop trigger the corresponding tones via WebAudio. Over-budget chime path verified: Exercise budget 3s, ran for 7s, crossed threshold, \"Over by 00:00:04\" rendered — this is the moment playOverBudget() fires (gated on muted=false and active category matches the one crossing). No console errors. Audio output itself isn't audible in headless mode but the trigger logic was exercised.",
+      "screenshot_path": "screenshots/2026-05-03T08-19-49.391Z_step_6.png",
+      "timestamp": "2026-05-03T08:19:49.392Z"
+    }
+  ],
+  "total": 7,
+  "passed": 7,
+  "failed": 0,
+  "duration_ms": 0,
+  "saved_at": "2026-05-03T08:00:22.097Z"
+}

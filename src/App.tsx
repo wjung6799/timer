@@ -1,0 +1,766 @@
+import { useEffect, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import {
+  type AppState,
+  type Category,
+  DAY_SEC,
+  PALETTE,
+  POMODORO_MS,
+  cryptoId,
+  defaultState,
+  effectiveBudget,
+  fmtBudget,
+  fmtDuration,
+  normalizeRemoteState,
+  parseBudget,
+  todayStr,
+} from "./types";
+import { playPomoDone, playStart, playStop, startAlarm } from "./sounds";
+import { archiveDay, loadState, saveState } from "./db";
+import { supabase } from "./supabase";
+import Auth from "./Auth";
+import History from "./History";
+import "./App.css";
+
+export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthReady(true);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+      setSession(sess);
+      if (sess) setShowAuth(false);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  if (!authReady) return <div className="app-loading">Loading…</div>;
+  const userId = session?.user.id ?? null;
+  const email = session?.user.email ?? null;
+  return (
+    <>
+      <BudgetApp
+        key={userId ?? "local"}
+        userId={userId}
+        email={email}
+        onSignIn={() => setShowAuth(true)}
+      />
+      {showAuth && <Auth onClose={() => setShowAuth(false)} />}
+    </>
+  );
+}
+
+function BudgetApp({
+  userId,
+  email,
+  onSignIn,
+}: {
+  userId: string | null;
+  email: string | null;
+  onSignIn: () => void;
+}) {
+  const [state, setState] = useState<AppState | null>(null);
+  const [now, setNow] = useState<number>(() => Date.now());
+  const [view, setView] = useState<"today" | "history">("today");
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const alarmStopRef = useRef<(() => void) | null>(null);
+  const stateRef = useRef<AppState | null>(null);
+  stateRef.current = state;
+
+  // Initial load.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const loaded = await loadState(userId);
+        if (cancelled) return;
+        if (!loaded) {
+          const fresh = defaultState();
+          setState(fresh);
+          await saveState(userId, fresh);
+          return;
+        }
+        // If state is from an earlier day, archive it to history before resetting.
+        if (loaded.date !== todayStr()) {
+          try {
+            await archiveDay(userId, loaded.date, loaded.categories);
+          } catch (e) {
+            console.error("Failed to archive previous day:", e);
+          }
+        }
+        const normalized = normalizeRemoteState(loaded);
+        setState(normalized);
+        if (normalized.date !== loaded.date) {
+          await saveState(userId, normalized);
+        }
+      } catch (e) {
+        if (!cancelled) setLoadErr(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  // Debounced save on state changes.
+  useEffect(() => {
+    if (!state) return;
+    const handle = window.setTimeout(() => {
+      saveState(userId, state).catch((e) => console.error("Save failed:", e));
+    }, 500);
+    return () => window.clearTimeout(handle);
+  }, [state, userId]);
+
+  // Flush latest state when userId changes (sign-in/out remounts via key).
+  // Save as-is so an active timer keeps running across the transition.
+  useEffect(() => {
+    return () => {
+      const s = stateRef.current;
+      if (!s) return;
+      saveState(userId, s).catch(() => {});
+    };
+  }, [userId]);
+
+  // Run the alarm while the active timer is over its budget.
+  useEffect(() => {
+    if (!state) return;
+    const active = state.categories.find((c) => c.id === state.activeId);
+    const overActive =
+      !!active && !active.isIdle && liveSpent(active, state, now) > active.budgetSec;
+    const shouldRing = overActive && !state.muted;
+
+    if (shouldRing && !alarmStopRef.current) {
+      alarmStopRef.current = startAlarm();
+    } else if (!shouldRing && alarmStopRef.current) {
+      alarmStopRef.current();
+      alarmStopRef.current = null;
+    }
+  }, [now, state]);
+
+  useEffect(() => {
+    return () => {
+      if (alarmStopRef.current) {
+        alarmStopRef.current();
+        alarmStopRef.current = null;
+      }
+    };
+  }, []);
+
+  // Tick + day rollover.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNow(Date.now());
+      const s = stateRef.current;
+      if (s && s.date !== todayStr()) {
+        const committed = commitActive(s, Date.now());
+        archiveDay(userId, s.date, committed.categories).catch((e) =>
+          console.error("History write failed:", e),
+        );
+        setState({
+          ...committed,
+          date: todayStr(),
+          categories: committed.categories.map((c) => ({ ...c, spentSec: 0, completed: false })),
+          activeId: null,
+          activeStartedAt: null,
+          pomoEndAt: null,
+        });
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [userId]);
+
+  // Pomodoro auto-stop.
+  useEffect(() => {
+    if (!state || !state.activeId || state.pomoEndAt == null) return;
+    if (now >= state.pomoEndAt) {
+      setState((s) => {
+        if (!s) return s;
+        if (!s.muted) playPomoDone();
+        return { ...commitActive(s, Date.now()), pomoEndAt: null };
+      });
+    }
+  }, [now, state]);
+
+  // Persist latest state on tab close. Don't commit the active timer —
+  // activeStartedAt is preserved so liveSpent picks up off-tab elapsed time on reopen.
+  useEffect(() => {
+    const handler = () => {
+      const s = stateRef.current;
+      if (!s) return;
+      // Best-effort sync save (browsers limit work in beforeunload).
+      saveState(userId, s).catch(() => {});
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [userId]);
+
+  if (loadErr) {
+    return (
+      <div className="app">
+        <p className="auth-err">Failed to load: {loadErr}</p>
+        <button onClick={() => location.reload()}>Retry</button>
+      </div>
+    );
+  }
+  if (!state) return <div className="app-loading">Loading your budget…</div>;
+
+  const startTimer = (id: string) => {
+    setState((s) => {
+      if (!s) return s;
+      const stopped = commitActive(s, Date.now());
+      if (!s.muted) playStart();
+      return { ...stopped, activeId: id, activeStartedAt: Date.now(), pomoEndAt: null };
+    });
+  };
+
+  const startPomodoro = (id: string) => {
+    setState((s) => {
+      if (!s) return s;
+      const stopped = commitActive(s, Date.now());
+      if (!s.muted) playStart();
+      return {
+        ...stopped,
+        activeId: id,
+        activeStartedAt: Date.now(),
+        pomoEndAt: Date.now() + POMODORO_MS,
+      };
+    });
+  };
+
+  const stopTimer = () => {
+    setState((s) => {
+      if (!s) return s;
+      if (s.activeId && !s.muted) playStop();
+      return { ...commitActive(s, Date.now()), pomoEndAt: null };
+    });
+  };
+
+  const toggleMute = () => {
+    setState((s) => (s ? { ...s, muted: !s.muted } : s));
+  };
+
+  const addCategory = (name: string, budgetSec: number) => {
+    setState((s) => {
+      if (!s) return s;
+      return {
+        ...s,
+        categories: [
+          ...s.categories,
+          {
+            id: cryptoId(),
+            name,
+            budgetSec,
+            spentSec: 0,
+            color: PALETTE[s.categories.length % PALETTE.length],
+          },
+        ],
+      };
+    });
+  };
+
+  const removeCategory = (id: string) => {
+    setState((s) => {
+      if (!s) return s;
+      const stopped = s.activeId === id ? { ...commitActive(s, Date.now()), pomoEndAt: null } : s;
+      return { ...stopped, categories: stopped.categories.filter((c) => c.id !== id) };
+    });
+  };
+
+  const updateCategory = (id: string, patch: Partial<Category>) => {
+    setState((s) => {
+      if (!s) return s;
+      return {
+        ...s,
+        categories: s.categories.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+      };
+    });
+  };
+
+  const completeCategory = (id: string) => {
+    setState((s) => {
+      if (!s) return s;
+      const stopped = s.activeId === id ? { ...commitActive(s, Date.now()), pomoEndAt: null } : s;
+      return {
+        ...stopped,
+        categories: stopped.categories.map((c) => (c.id === id ? { ...c, completed: true } : c)),
+      };
+    });
+  };
+
+  const reopenCategory = (id: string) => {
+    setState((s) => {
+      if (!s) return s;
+      return {
+        ...s,
+        categories: s.categories.map((c) => (c.id === id ? { ...c, completed: false } : c)),
+      };
+    });
+  };
+
+  const signOut = async () => {
+    if (!userId) return;
+    const s = stateRef.current;
+    if (s) {
+      try {
+        await saveState(userId, commitActive(s, Date.now()));
+      } catch (e) {
+        console.error("Final save failed:", e);
+      }
+    }
+    await supabase.auth.signOut();
+  };
+
+  const userCats = state.categories.filter((c) => !c.isIdle);
+  const totalSpent = userCats.reduce((sum, c) => sum + liveSpent(c, state, now), 0);
+  const nowDate = new Date(now);
+  const secSinceMidnight =
+    nowDate.getHours() * 3600 +
+    nowDate.getMinutes() * 60 +
+    nowDate.getSeconds();
+  const hoursLeft = DAY_SEC - secSinceMidnight;
+  const coverage = computeCoverage(state, now);
+  const sumUserBudgets = userCats.reduce((sum, c) => sum + effectiveBudget(c), 0);
+  const openSec = Math.max(0, hoursLeft - sumUserBudgets);
+  const accountedSec = userCats.reduce(
+    (sum, c) => sum + Math.min(liveSpent(c, state, now), effectiveBudget(c)),
+    0,
+  );
+  const idleSec = Math.max(0, secSinceMidnight - accountedSec);
+
+  return (
+    <div className="app">
+      <header className="header">
+        <h1>Time Budget</h1>
+        <div className="header-right">
+          <button
+            className="btn-icon"
+            onClick={() => setView(view === "history" ? "today" : "history")}
+            title={view === "history" ? "Back to today" : "View past days"}
+          >
+            {view === "history" ? "Today" : "History"}
+          </button>
+          <button
+            className="btn-mute"
+            onClick={toggleMute}
+            aria-label={state.muted ? "Unmute sounds" : "Mute sounds"}
+            title={state.muted ? "Sound off" : "Sound on"}
+          >
+            <SpeakerIcon muted={state.muted} />
+          </button>
+          <p className="date">{state.date}</p>
+          {userId ? (
+            <button
+              className="btn-icon btn-signout"
+              onClick={signOut}
+              title={email ?? undefined}
+            >
+              Sign out
+            </button>
+          ) : (
+            <button className="btn-icon btn-signin" onClick={onSignIn}>
+              Sign in
+            </button>
+          )}
+        </div>
+      </header>
+
+      {view === "today" ? (
+        <>
+          <section className="day-summary">
+            <DayBar categories={state.categories} state={state} now={now} coverage={coverage} />
+            <div className="day-stats">
+              <Stat
+                label="Open"
+                value={fmtDuration(openSec)}
+                accent={openSec === 0 ? "danger" : openSec < 1800 ? "warn" : undefined}
+              />
+              <Stat label="Spent today" value={fmtDuration(totalSpent)} />
+              <Stat label="Hours left" value={fmtDuration(hoursLeft)} />
+              {coverage.overAllottedBy > 0 && (
+                <Stat
+                  label="Over-allotted"
+                  value={fmtBudget(coverage.overAllottedBy)}
+                  accent="warn"
+                />
+              )}
+            </div>
+          </section>
+
+          <section className="categories">
+            {state.categories.map((c) => {
+              const spent = c.isIdle ? idleSec : liveSpent(c, state, now);
+              return (
+                <CategoryRow
+                  key={c.id}
+                  category={c}
+                  isActive={state.activeId === c.id}
+                  liveSpent={spent}
+                  coverage={coverage}
+                  pomoEndAt={state.activeId === c.id ? state.pomoEndAt : null}
+                  now={now}
+                  onStart={() => startTimer(c.id)}
+                  onPomo={() => startPomodoro(c.id)}
+                  onStop={stopTimer}
+                  onRemove={() => removeCategory(c.id)}
+                  onUpdate={(patch) => updateCategory(c.id, patch)}
+                  onComplete={() => completeCategory(c.id)}
+                  onReopen={() => reopenCategory(c.id)}
+                />
+              );
+            })}
+          </section>
+
+          <AddCategoryForm onAdd={addCategory} />
+        </>
+      ) : (
+        <History userId={userId} />
+      )}
+    </div>
+  );
+}
+
+type Coverage = {
+  totalOverage: number;
+  overAllottedBy: number;
+};
+
+function computeCoverage(s: AppState, now: number): Coverage {
+  let userBudget = 0;
+  let totalOverage = 0;
+  for (const c of s.categories) {
+    if (c.isIdle) continue;
+    const eff = effectiveBudget(c);
+    userBudget += eff;
+    const spent = liveSpent(c, s, now);
+    if (spent > eff) totalOverage += spent - eff;
+  }
+  return {
+    totalOverage,
+    overAllottedBy: Math.max(0, userBudget - DAY_SEC),
+  };
+}
+
+function liveSpent(c: Category, s: AppState, now: number): number {
+  if (s.activeId === c.id && s.activeStartedAt) {
+    return c.spentSec + Math.max(0, Math.floor((now - s.activeStartedAt) / 1000));
+  }
+  return c.spentSec;
+}
+
+function commitActive(s: AppState, atMs: number): AppState {
+  if (!s.activeId || !s.activeStartedAt) return s;
+  const elapsed = Math.floor((atMs - s.activeStartedAt) / 1000);
+  if (elapsed <= 0) return { ...s, activeId: null, activeStartedAt: null };
+  return {
+    ...s,
+    categories: s.categories.map((c) =>
+      c.id === s.activeId ? { ...c, spentSec: c.spentSec + elapsed } : c
+    ),
+    activeId: null,
+    activeStartedAt: null,
+  };
+}
+
+function fmtMmSs(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function SpeakerIcon({ muted }: { muted: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M11 5 6 9H2v6h4l5 4V5z" />
+      {muted ? (
+        <>
+          <line x1="22" y1="9" x2="16" y2="15" />
+          <line x1="16" y1="9" x2="22" y2="15" />
+        </>
+      ) : (
+        <>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: "danger" | "warn" | "muted";
+}) {
+  return (
+    <div className={`stat ${accent ? `stat-${accent}` : ""}`}>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+    </div>
+  );
+}
+
+function DayBar({
+  categories,
+  state,
+  now,
+  coverage,
+}: {
+  categories: Category[];
+  state: AppState;
+  now: number;
+  coverage: Coverage;
+}) {
+  void coverage;
+  const segments = categories
+    .filter((c) => !c.isIdle)
+    .map((c) => ({
+      color: c.color,
+      width: (liveSpent(c, state, now) / DAY_SEC) * 100,
+      name: c.name,
+    }));
+
+  const date = new Date(now);
+  const msSinceMidnight =
+    date.getHours() * 3600_000 +
+    date.getMinutes() * 60_000 +
+    date.getSeconds() * 1000 +
+    date.getMilliseconds();
+  const nowPct = (msSinceMidnight / 86_400_000) * 100;
+  const clock = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+
+  return (
+    <div className="day-bar-wrap">
+      <div className="day-bar-now-label" style={{ left: `${nowPct}%` }}>{clock}</div>
+      <div className="day-bar" title={`Now: ${clock}`}>
+        <div className="day-bar-past" style={{ width: `${nowPct}%` }} />
+        {segments.map((seg, i) => (
+          <div
+            key={i}
+            className="day-seg"
+            style={{ width: `${seg.width}%`, background: seg.color }}
+            title={`${seg.name}: ${seg.width.toFixed(1)}% of day`}
+          />
+        ))}
+        <div className="day-bar-now" style={{ left: `${nowPct}%` }} title={`Now: ${clock}`} />
+      </div>
+      <div className="day-bar-axis">
+        <span>0:00</span>
+        <span>6:00</span>
+        <span>12:00</span>
+        <span>18:00</span>
+        <span>24:00</span>
+      </div>
+    </div>
+  );
+}
+
+function CategoryRow({
+  category,
+  isActive,
+  liveSpent,
+  coverage,
+  pomoEndAt,
+  now,
+  onStart,
+  onPomo,
+  onStop,
+  onRemove,
+  onUpdate,
+  onComplete,
+  onReopen,
+}: {
+  category: Category;
+  isActive: boolean;
+  liveSpent: number;
+  coverage: Coverage;
+  pomoEndAt: number | null;
+  now: number;
+  onStart: () => void;
+  onPomo: () => void;
+  onStop: () => void;
+  onRemove: () => void;
+  onUpdate: (patch: Partial<Category>) => void;
+  onComplete: () => void;
+  onReopen: () => void;
+}) {
+  void coverage;
+  const isIdle = !!category.isIdle;
+  const isCompleted = !!category.completed;
+  const displayBudget = category.budgetSec;
+  const inPomo = isActive && pomoEndAt != null;
+  const pomoLeft = inPomo ? Math.max(0, Math.ceil((pomoEndAt! - now) / 1000)) : 0;
+  const showPomoButton = !isIdle && !isCompleted && category.budgetSec >= 3600;
+  const showDoneButton = !isIdle && !isCompleted;
+
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(category.name);
+  const [budget, setBudget] = useState(fmtBudget(displayBudget));
+
+  const pct = isIdle
+    ? Math.min(100, (liveSpent / DAY_SEC) * 100)
+    : displayBudget > 0
+      ? (liveSpent / displayBudget) * 100
+      : 0;
+  const over = !isIdle && liveSpent > category.budgetSec;
+  const remaining = displayBudget - liveSpent;
+
+  const saveEdit = () => {
+    const newBudget = parseBudget(budget);
+    if (newBudget == null || newBudget <= 0) return;
+    onUpdate({ name: name.trim() || category.name, budgetSec: newBudget });
+    setEditing(false);
+  };
+
+  return (
+    <div className={`category ${isActive ? "active" : ""} ${over ? "over" : ""} ${isIdle ? "idle" : ""} ${isCompleted ? "completed" : ""}`}>
+      <div className="cat-color" style={{ background: category.color }} />
+      <div className="cat-main">
+        <div className="cat-header">
+          {editing ? (
+            <>
+              <input
+                className="cat-name-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                aria-label="Category name"
+              />
+              <input
+                className="cat-budget-input"
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                placeholder="e.g. 1h 30m"
+                aria-label="Budget"
+              />
+              <button onClick={saveEdit}>Save</button>
+              <button onClick={() => setEditing(false)}>Cancel</button>
+            </>
+          ) : (
+            <>
+              <span className="cat-name">
+                {category.name}
+                {inPomo && <span className="pomo-badge">Pomo {fmtMmSs(pomoLeft)}</span>}
+              </span>
+              <span className="cat-times">
+                <span className={`cat-spent ${over ? "danger" : ""}`}>{fmtDuration(liveSpent)}</span>
+                {!isIdle && (
+                  <>
+                    <span className="cat-sep"> / </span>
+                    <span className="cat-budget">{fmtBudget(displayBudget)}</span>
+                  </>
+                )}
+              </span>
+            </>
+          )}
+        </div>
+        <div className="cat-bar">
+          <div
+            className={`cat-bar-fill ${over ? "danger" : ""}`}
+            style={{ width: `${Math.min(pct, 100)}%`, background: category.color }}
+          />
+          {over && (
+            <div
+              className="cat-bar-over"
+              style={{ width: `${Math.min(pct - 100, 100)}%` }}
+            />
+          )}
+        </div>
+        <div className="cat-meta">
+          {isCompleted ? (
+            <span className="completed-text">
+              ✓ Done · {fmtBudget(category.budgetSec - category.spentSec)} returned to Open
+            </span>
+          ) : isIdle ? (
+            <span className="muted-text">Auto-tracked · downtime + over-budget</span>
+          ) : over ? (
+            <span className="danger">Over by {fmtDuration(liveSpent - category.budgetSec)}</span>
+          ) : (
+            <span>{fmtDuration(remaining)} left</span>
+          )}
+        </div>
+      </div>
+      <div className="cat-actions">
+        {!editing && !isIdle && (
+          <>
+            {isCompleted ? (
+              <>
+                <button className="btn-reopen" onClick={onReopen}>Reopen</button>
+                <button className="btn-icon btn-danger" onClick={onRemove} aria-label="Remove">×</button>
+              </>
+            ) : (
+              <>
+                {isActive ? (
+                  <button className="btn-stop" onClick={onStop}>Stop</button>
+                ) : (
+                  <button className="btn-start" onClick={onStart}>Start</button>
+                )}
+                {showPomoButton && !isActive && (
+                  <button className="btn-pomo" onClick={onPomo} title="Start a 25-minute focus block">Pomo</button>
+                )}
+                {showDoneButton && (
+                  <button className="btn-done" onClick={onComplete} title="Mark complete and return remaining budget to Open">Done</button>
+                )}
+                <button className="btn-icon" onClick={() => setEditing(true)}>Edit</button>
+                <button className="btn-icon btn-danger" onClick={onRemove} aria-label="Remove">×</button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AddCategoryForm({ onAdd }: { onAdd: (name: string, budgetSec: number) => void }) {
+  const [name, setName] = useState("");
+  const [budget, setBudget] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("Name required");
+      return;
+    }
+    const sec = parseBudget(budget);
+    if (sec == null || sec <= 0) {
+      setError("Budget like '1h', '30m', '1h 30m'");
+      return;
+    }
+    onAdd(trimmed, sec);
+    setName("");
+    setBudget("");
+    nameRef.current?.focus();
+  };
+
+  return (
+    <form className="add-form" onSubmit={submit}>
+      <input
+        ref={nameRef}
+        placeholder="Category (e.g. Reading)"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        aria-label="New category name"
+      />
+      <input
+        placeholder="Budget (e.g. 1h 30m)"
+        value={budget}
+        onChange={(e) => setBudget(e.target.value)}
+        aria-label="New category budget"
+      />
+      <button type="submit">Add</button>
+      {error && <span className="form-error">{error}</span>}
+    </form>
+  );
+}

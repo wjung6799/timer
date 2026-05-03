@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gantt Bar Prototype — Time Budget</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --surface: #181b22;
+    --surface-2: #1f232c;
+    --border: #2a2f3a;
+    --text: #e6e9ef;
+    --text-dim: #9aa3b2;
+    --text-faint: #6b7280;
+    --accent: #4f46e5;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --success: #10b981;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fa;
+      --surface: #ffffff;
+      --surface-2: #f1f3f7;
+      --border: #e2e5eb;
+      --text: #0f172a;
+      --text-dim: #475569;
+      --text-faint: #94a3b8;
+      color-scheme: light;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 32px 24px 80px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 {
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 4px;
+  }
+  .sub {
+    color: var(--text-dim);
+    margin-bottom: 32px;
+    font-size: 14px;
+  }
+  h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 32px 0 12px;
+    color: var(--text);
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 22px 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 { margin-top: 0; }
+  .meta {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin: 4px 0 18px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .bar-svg { display: block; width: 100%; height: 56px; overflow: visible; }
+  .bar-track { fill: var(--surface-2); }
+  .bar-past { fill: rgba(125, 132, 145, 0.12); }
+  .bar-now { stroke: var(--text); stroke-width: 2; }
+  .bar-now-label {
+    fill: var(--text-dim);
+    font-size: 10px;
+    font-family: system-ui;
+  }
+  .bar-axis text {
+    fill: var(--text-faint);
+    font-size: 10px;
+    font-family: system-ui;
+  }
+  .bar-seg { cursor: pointer; transition: opacity 0.15s; }
+  .bar-seg:hover { opacity: 0.75; }
+  .gap-marker {
+    fill: var(--danger);
+    opacity: 0.5;
+  }
+  .multi-row {
+    display: grid;
+    grid-template-columns: 38px 1fr;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .multi-row .label {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .annotation {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 16px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border-left: 3px solid var(--warn);
+    border-radius: 4px;
+  }
+  .annotation strong { color: var(--text); }
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    align-items: center;
+  }
+  button {
+    font: inherit;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--border); }
+  button.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .stat {
+    background: var(--surface-2);
+    border-radius: 8px;
+    padding: 8px 12px;
+  }
+  .stat-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .stat-value {
+    font-size: 17px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  #tooltip {
+    position: fixed;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 100;
+    white-space: nowrap;
+  }
+  #tooltip strong { color: var(--text); }
+  .compare-grid {
+    display: grid;
+    gap: 8px;
+  }
+  .compare-grid .small-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Gantt Bar Prototype</h1>
+  <p class="sub">Visual proposal for the day timeline. Hover segments for details.</p>
+
+  <div class="card">
+    <h2>Today, side-by-side</h2>
+    <p class="meta">Same data, two layouts. Note the totals are identical, but the Gantt version reveals the day's shape.</p>
+    <div class="legend">
+      <span><span class="legend-dot" style="background:#4f46e5"></span>Work</span>
+      <span><span class="legend-dot" style="background:#10b981"></span>Exercise</span>
+      <span><span class="legend-dot" style="background:#0ea5e9"></span>Sleep</span>
+      <span><span class="legend-dot" style="background:#f59e0b"></span>Reading</span>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><div class="stat-label">Spent</div><div class="stat-value">11h 30m</div></div>
+      <div class="stat"><div class="stat-label">Open</div><div class="stat-value">5h</div></div>
+      <div class="stat"><div class="stat-label">Hours left</div><div class="stat-value">9:00:00</div></div>
+    </div>
+
+    <div class="compare-grid">
+      <div>
+        <div class="small-label">Cumulative (current production)</div>
+        <svg class="bar-svg" id="cumulative-bar" viewBox="0 0 1000 56" preserveAspectRatio="none"></svg>
+      </div>
+      <div>
+        <div class="small-label">Gantt (proposed)</div>
+        <svg class="bar-svg" id="gantt-bar" viewBox="0 0 1000 56" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+
+    <div class="annotation">
+      <strong>Read the Gantt bar:</strong>
+      Sleep ended at 7am. A run at 7am. Deep work block 9–11. Break for lunch.
+      Two more work sessions in the afternoon. A reading session before
+      dinner. Now it's 3pm with 9 hours left in the day, 5h still open to
+      allot if needed.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>This week (multi-day Gantt)</h2>
+    <p class="meta">Vertical alignment across days exposes habits the cumulative bar can't show.</p>
+    <div id="weekly"></div>
+    <div class="annotation">
+      <strong>Patterns visible at a glance:</strong>
+      Morning workouts cluster Mon/Tue/Thu but vanish Wed/Fri. Deep work
+      consistently starts at 9am — a rhythm worth protecting. Friday is
+      fragmented: 4 short sessions, no real focus block.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Why this beats cumulative</h2>
+    <p class="meta">Pick a question, see how each bar answers it.</p>
+    <div class="controls">
+      <button data-q="rhythm" class="active">Daily rhythm</button>
+      <button data-q="gap">Lost time</button>
+      <button data-q="fragment">Fragmentation</button>
+    </div>
+    <div id="answer"></div>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+const COLORS = {
+  Work: "#4f46e5",
+  Exercise: "#10b981",
+  Sleep: "#0ea5e9",
+  Reading: "#f59e0b",
+};
+
+const NOW_MIN = 15 * 60; // 15:00
+const W = 1000;
+const PAD_LEFT = 0;
+const PAD_RIGHT = 0;
+const BAR_Y = 14;
+const BAR_H = 16;
+
+const todaySessions = [
+  { cat: "Sleep", start: 0, end: 7 * 60 },
+  { cat: "Exercise", start: 7 * 60, end: 7 * 60 + 30 },
+  { cat: "Work", start: 9 * 60, end: 11 * 60 + 30 },
+  { cat: "Work", start: 12 * 60 + 30, end: 13 * 60 + 30 },
+  { cat: "Work", start: 13 * 60 + 45, end: 14 * 60 + 30 },
+  { cat: "Reading", start: 14 * 60 + 30, end: 15 * 60 },
+];
+
+function minToX(min) {
+  return (min / 1440) * (W - PAD_LEFT - PAD_RIGHT) + PAD_LEFT;
+}
+
+function fmtMin(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function fmtDur(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
+function makeAxis() {
+  const ticks = [0, 360, 720, 1080, 1440];
+  const labels = ["0:00", "6:00", "12:00", "18:00", "24:00"];
+  let s = `<g class="bar-axis">`;
+  ticks.forEach((t, i) => {
+    const x = minToX(t);
+    const anchor = i === 0 ? "start" : i === ticks.length - 1 ? "end" : "middle";
+    s += `<text x="${x}" y="50" text-anchor="${anchor}">${labels[i]}</text>`;
+  });
+  s += `</g>`;
+  return s;
+}
+
+function bg(showPast) {
+  const trackW = W - PAD_LEFT - PAD_RIGHT;
+  let s = `<rect class="bar-track" x="${PAD_LEFT}" y="${BAR_Y}" width="${trackW}" height="${BAR_H}" rx="${BAR_H / 2}"/>`;
+  if (showPast) {
+    s += `<rect class="bar-past" x="${PAD_LEFT}" y="${BAR_Y}" width="${minToX(NOW_MIN) - PAD_LEFT}" height="${BAR_H}"/>`;
+  }
+  return s;
+}
+
+function nowMarker() {
+  const x = minToX(NOW_MIN);
+  return `
+    <line class="bar-now" x1="${x}" y1="${BAR_Y - 4}" x2="${x}" y2="${BAR_Y + BAR_H + 4}"/>
+    <text class="bar-now-label" x="${x}" y="${BAR_Y - 8}" text-anchor="middle">${fmtMin(NOW_MIN)}</text>
+  `;
+}
+
+// Cumulative: stack from left
+function renderCumulative() {
+  const totals = {};
+  for (const s of todaySessions) {
+    totals[s.cat] = (totals[s.cat] || 0) + (s.end - s.start);
+  }
+  const order = ["Sleep", "Exercise", "Work", "Reading"];
+  let cursor = 0;
+  let segs = "";
+  for (const cat of order) {
+    if (!totals[cat]) continue;
+    const w = (totals[cat] / 1440) * (W - PAD_LEFT - PAD_RIGHT);
+    segs += `<rect class="bar-seg" x="${PAD_LEFT + cursor}" y="${BAR_Y}" width="${w}" height="${BAR_H}" fill="${COLORS[cat]}" data-tip="${cat}: ${fmtDur(totals[cat])} total"/>`;
+    cursor += w;
+  }
+  document.getElementById("cumulative-bar").innerHTML =
+    bg(false) + segs + nowMarker() + makeAxis();
+}
+
+// Gantt: place at actual start/end
+function renderGantt(elId, sessions, showPast) {
+  let segs = "";
+  for (const s of sessions) {
+    const x = minToX(s.start);
+    const w = minToX(s.end) - minToX(s.start);
+    segs += `<rect class="bar-seg" x="${x}" y="${BAR_Y}" width="${w}" height="${BAR_H}" fill="${COLORS[s.cat]}" data-tip="${s.cat}: ${fmtMin(s.start)}–${fmtMin(s.end)} (${fmtDur(s.end - s.start)})"/>`;
+  }
+  document.getElementById(elId).innerHTML =
+    bg(showPast) + segs + (showPast ? nowMarker() : "") + makeAxis();
+}
+
+renderCumulative();
+renderGantt("gantt-bar", todaySessions, true);
+
+// Weekly view
+const week = [
+  {
+    day: "Mon",
+    sessions: [
+      { cat: "Sleep", start: 0, end: 7 * 60 },
+      { cat: "Exercise", start: 6 * 60 + 5, end: 6 * 60 + 35 },
+      { cat: "Work", start: 9 * 60, end: 11 * 60 + 30 },
+      { cat: "Work", start: 13 * 60, end: 14 * 60 + 30 },
+      { cat: "Reading", start: 19 * 60, end: 19 * 60 + 30 },
+      { cat: "Sleep", start: 23 * 60, end: 24 * 60 },
+    ],
+  },
+  {
+    day: "Tue",
+    sessions: [
+      { cat: "Sleep", start: 0, end: 7 * 60 },
+      { cat: "Exercise", start: 6 * 60, end: 6 * 60 + 40 },
+      { cat: "Work", start: 9 * 60, end: 12 * 60 },
+      { cat: "Work", start: 13 * 60 + 30, end: 14 * 60 + 30 },
+      { cat: "Reading", start: 18 * 60, end: 18 * 60 + 45 },
+      { cat: "Sleep", start: 23 * 60 + 30, end: 24 * 60 },
+    ],
+  },
+  {
+    day: "Wed",
+    sessions: [
+      { cat: "Sleep", start: 0, end: 8 * 60 },
+      { cat: "Work", start: 9 * 60, end: 11 * 60 + 30 },
+      { cat: "Work", start: 13 * 60, end: 15 * 60 + 30 },
+      { cat: "Exercise", start: 18 * 60 + 30, end: 19 * 60 },
+      { cat: "Sleep", start: 23 * 60, end: 24 * 60 },
+    ],
+  },
+  {
+    day: "Thu",
+    sessions: [
+      { cat: "Sleep", start: 0, end: 7 * 60 },
+      { cat: "Exercise", start: 6 * 60 + 10, end: 6 * 60 + 40 },
+      { cat: "Work", start: 9 * 60, end: 11 * 60 },
+      { cat: "Work", start: 13 * 60, end: 15 * 60 + 30 },
+      { cat: "Reading", start: 20 * 60, end: 20 * 60 + 45 },
+      { cat: "Sleep", start: 23 * 60, end: 24 * 60 },
+    ],
+  },
+  {
+    day: "Fri",
+    sessions: [
+      { cat: "Sleep", start: 0, end: 8 * 60 },
+      { cat: "Work", start: 9 * 60, end: 10 * 60 + 15 },
+      { cat: "Work", start: 11 * 60, end: 12 * 60 },
+      { cat: "Work", start: 14 * 60, end: 15 * 60 },
+      { cat: "Work", start: 16 * 60, end: 17 * 60 },
+      { cat: "Reading", start: 21 * 60, end: 21 * 60 + 30 },
+      { cat: "Sleep", start: 23 * 60 + 30, end: 24 * 60 },
+    ],
+  },
+];
+
+const weeklyEl = document.getElementById("weekly");
+weeklyEl.innerHTML = week.map((d, i) => `
+  <div class="multi-row">
+    <span class="label">${d.day}</span>
+    <svg viewBox="0 0 ${W} 24" class="bar-svg" style="height:22px" id="week-${i}" preserveAspectRatio="none"></svg>
+  </div>
+`).join("") + `
+  <div class="multi-row">
+    <span class="label"></span>
+    <svg viewBox="0 0 ${W} 16" class="bar-svg" style="height:14px" preserveAspectRatio="none">${makeAxis().replace(/y="50"/g, 'y="11"')}</svg>
+  </div>
+`;
+week.forEach((d, i) => {
+  let segs = `<rect class="bar-track" x="0" y="4" width="${W}" height="14" rx="7"/>`;
+  for (const s of d.sessions) {
+    const x = minToX(s.start);
+    const w = minToX(s.end) - minToX(s.start);
+    segs += `<rect class="bar-seg" x="${x}" y="4" width="${w}" height="14" fill="${COLORS[s.cat]}" data-tip="${d.day} · ${s.cat}: ${fmtMin(s.start)}–${fmtMin(s.end)}"/>`;
+  }
+  document.getElementById(`week-${i}`).innerHTML = segs;
+});
+
+// Question-driven comparison
+const ANSWER_EL = document.getElementById("answer");
+const ANSWERS = {
+  rhythm: {
+    title: "Q: Do I always do my best work in the morning?",
+    cumulative: "On the cumulative bar: invisible. You see Work=4h, that's all.",
+    gantt: "On Gantt: long unbroken Work block at 9–11 every day except Friday — that's your rhythm.",
+    sessions: [
+      { cat: "Work", start: 9 * 60, end: 11 * 60 + 30 },
+      { cat: "Work", start: 13 * 60, end: 14 * 60 + 30 },
+    ],
+  },
+  gap: {
+    title: "Q: Where did the afternoon go yesterday?",
+    cumulative: "Cumulative shows Work=2h. You don't know if that was 9–11 or scattered.",
+    gantt: "Gantt shows: empty space 14:30–18:00. There's the lost afternoon.",
+    sessions: [
+      { cat: "Work", start: 9 * 60, end: 11 * 60 },
+      { cat: "Reading", start: 13 * 60, end: 13 * 60 + 30 },
+      { cat: "Work", start: 18 * 60, end: 19 * 60 },
+    ],
+  },
+  fragment: {
+    title: "Q: Was that 4h work block actually focused, or scattered?",
+    cumulative: "Cumulative shows Work=4h. Same as a deep block.",
+    gantt: "Gantt shows: 6 small chunks separated by gaps. Real focus time was probably 1h.",
+    sessions: [
+      { cat: "Work", start: 9 * 60, end: 9 * 60 + 30 },
+      { cat: "Work", start: 10 * 60 + 15, end: 10 * 60 + 45 },
+      { cat: "Work", start: 11 * 60 + 30, end: 12 * 60 },
+      { cat: "Work", start: 13 * 60, end: 13 * 60 + 45 },
+      { cat: "Work", start: 14 * 60 + 30, end: 15 * 60 + 15 },
+      { cat: "Work", start: 16 * 60, end: 17 * 60 },
+    ],
+  },
+};
+
+function renderAnswer(q) {
+  const a = ANSWERS[q];
+  ANSWER_EL.innerHTML = `
+    <h3 style="margin:8px 0 12px;font-size:14px;font-weight:600">${a.title}</h3>
+    <div class="compare-grid">
+      <div>
+        <div class="small-label">Cumulative</div>
+        <svg class="bar-svg" id="ans-cum" viewBox="0 0 1000 56" preserveAspectRatio="none"></svg>
+        <div style="margin-top:6px;font-size:13px;color:var(--text-dim)">${a.cumulative}</div>
+      </div>
+      <div>
+        <div class="small-label">Gantt</div>
+        <svg class="bar-svg" id="ans-gantt" viewBox="0 0 1000 56" preserveAspectRatio="none"></svg>
+        <div style="margin-top:6px;font-size:13px;color:var(--text-dim)">${a.gantt}</div>
+      </div>
+    </div>
+  `;
+  // Cumulative for answer
+  const totals = {};
+  for (const s of a.sessions) totals[s.cat] = (totals[s.cat] || 0) + (s.end - s.start);
+  let cursor = 0, segs = "";
+  for (const cat of Object.keys(totals)) {
+    const w = (totals[cat] / 1440) * W;
+    segs += `<rect class="bar-seg" x="${cursor}" y="${BAR_Y}" width="${w}" height="${BAR_H}" fill="${COLORS[cat]}" data-tip="${cat}: ${fmtDur(totals[cat])}"/>`;
+    cursor += w;
+  }
+  document.getElementById("ans-cum").innerHTML = bg(false) + segs + makeAxis();
+  renderGantt("ans-gantt", a.sessions, false);
+  attachTooltips();
+}
+
+document.querySelectorAll(".controls button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".controls button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    renderAnswer(btn.dataset.q);
+  });
+});
+
+renderAnswer("rhythm");
+
+// Tooltip
+const tooltip = document.getElementById("tooltip");
+function attachTooltips() {
+  document.querySelectorAll("[data-tip]").forEach((el) => {
+    el.addEventListener("mouseenter", (e) => {
+      tooltip.innerHTML = el.getAttribute("data-tip");
+      tooltip.style.opacity = "1";
+    });
+    el.addEventListener("mousemove", (e) => {
+      tooltip.style.left = e.clientX + 12 + "px";
+      tooltip.style.top = e.clientY + 12 + "px";
+    });
+    el.addEventListener("mouseleave", () => {
+      tooltip.style.opacity = "0";
+    });
+  });
+}
+attachTooltips();
+</script>
+</body>
+</html>
