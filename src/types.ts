@@ -20,7 +20,11 @@ export type DefaultCategory = {
 };
 
 export function effectiveBudget(c: Category): number {
-  return c.completed ? c.spentSec : c.budgetSec;
+  // Completed under-budget releases unused budget back to "Open".
+  // Completed over-budget keeps the original budget so the overage stays
+  // accounted for in Idle (i.e. doesn't silently absorb back into the category).
+  if (!c.completed) return c.budgetSec;
+  return Math.min(c.spentSec, c.budgetSec);
 }
 
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;

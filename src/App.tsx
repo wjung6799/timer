@@ -390,7 +390,10 @@ function BudgetApp({
   };
 
   const userCats = state.categories.filter((c) => !c.isIdle);
-  const totalSpent = userCats.reduce((sum, c) => sum + liveSpent(c, state, now), 0);
+  const totalSpent = userCats.reduce(
+    (sum, c) => sum + Math.min(liveSpent(c, state, now), effectiveBudget(c)),
+    0,
+  );
   const nowDate = new Date(now);
   const secSinceMidnight =
     nowDate.getHours() * 3600 +
@@ -399,9 +402,18 @@ function BudgetApp({
   const hoursLeft = DAY_SEC - secSinceMidnight;
   const coverage = computeCoverage(state, now);
   const sumUserBudgets = userCats.reduce((sum, c) => sum + effectiveBudget(c), 0);
-  const openSec = Math.max(0, hoursLeft - sumUserBudgets);
+  // Budget remaining = unspent budget across categories you still plan to do.
+  // Completed and over-budget categories contribute 0.
+  const budgetRemainingSec = userCats.reduce((sum, c) => {
+    if (c.completed) return sum;
+    return sum + Math.max(0, c.budgetSec - liveSpent(c, state, now));
+  }, 0);
   const accountedSec = userCats.reduce(
     (sum, c) => sum + Math.min(liveSpent(c, state, now), effectiveBudget(c)),
+    0,
+  );
+  const overflowSec = userCats.reduce(
+    (sum, c) => sum + Math.max(0, liveSpent(c, state, now) - effectiveBudget(c)),
     0,
   );
   const idleSec = Math.max(0, secSinceMidnight - accountedSec);
@@ -457,9 +469,15 @@ function BudgetApp({
             <DayBar categories={state.categories} state={state} now={now} coverage={coverage} />
             <div className="day-stats">
               <Stat
-                label="Open"
-                value={fmtDuration(openSec)}
-                accent={openSec === 0 ? "danger" : openSec < 1800 ? "warn" : undefined}
+                label="Budget remaining"
+                value={fmtDuration(budgetRemainingSec)}
+                accent={
+                  budgetRemainingSec === 0
+                    ? "danger"
+                    : budgetRemainingSec < 1800
+                      ? "warn"
+                      : undefined
+                }
               />
               <Stat label="Spent today" value={fmtDuration(totalSpent)} />
               <Stat label="Hours left" value={fmtDuration(hoursLeft)} />
@@ -485,6 +503,7 @@ function BudgetApp({
                   coverage={coverage}
                   pomoEndAt={state.activeId === c.id ? state.pomoEndAt : null}
                   now={now}
+                  overflowFromOthers={c.isIdle ? overflowSec : undefined}
                   onStart={() => startTimer(c.id)}
                   onPomo={() => startPomodoro(c.id)}
                   onStop={stopTimer}
@@ -620,11 +639,14 @@ function DayBar({
   void coverage;
   const segments = categories
     .filter((c) => !c.isIdle)
-    .map((c) => ({
-      color: c.color,
-      width: (liveSpent(c, state, now) / DAY_SEC) * 100,
-      name: c.name,
-    }));
+    .map((c) => {
+      const capped = Math.min(liveSpent(c, state, now), effectiveBudget(c));
+      return {
+        color: c.color,
+        width: (capped / DAY_SEC) * 100,
+        name: c.name,
+      };
+    });
 
   const date = new Date(now);
   const msSinceMidnight =
@@ -668,6 +690,7 @@ function CategoryRow({
   coverage,
   pomoEndAt,
   now,
+  overflowFromOthers,
   onStart,
   onPomo,
   onStop,
@@ -682,6 +705,7 @@ function CategoryRow({
   coverage: Coverage;
   pomoEndAt: number | null;
   now: number;
+  overflowFromOthers?: number;
   onStart: () => void;
   onPomo: () => void;
   onStop: () => void;
@@ -694,6 +718,11 @@ function CategoryRow({
   const isIdle = !!category.isIdle;
   const isCompleted = !!category.completed;
   const displayBudget = category.budgetSec;
+  // Visual cap: never show spent above the budget; the overage is surfaced
+  // on the Idle row via `overflowFromOthers`.
+  const displaySpent = isIdle
+    ? liveSpent
+    : Math.min(liveSpent, displayBudget);
   const inPomo = isActive && pomoEndAt != null;
   const pomoLeft = inPomo ? Math.max(0, Math.ceil((pomoEndAt! - now) / 1000)) : 0;
   const showPomoButton = !isIdle && !isCompleted && category.budgetSec >= 3600;
@@ -708,10 +737,10 @@ function CategoryRow({
   const pct = isIdle
     ? Math.min(100, (liveSpent / DAY_SEC) * 100)
     : displayBudget > 0
-      ? (liveSpent / displayBudget) * 100
+      ? Math.min(100, (displaySpent / displayBudget) * 100)
       : 0;
-  const over = !isIdle && liveSpent > category.budgetSec;
-  const remaining = displayBudget - liveSpent;
+  const atBudget = !isIdle && !isCompleted && liveSpent >= category.budgetSec;
+  const remaining = Math.max(0, displayBudget - liveSpent);
 
   const beginEdit = () => {
     setName(category.name);
@@ -742,7 +771,7 @@ function CategoryRow({
   };
 
   return (
-    <div className={`category ${isActive ? "active" : ""} ${over ? "over" : ""} ${isIdle ? "idle" : ""} ${isCompleted ? "completed" : ""}`}>
+    <div className={`category ${isActive ? "active" : ""} ${atBudget ? "at-budget" : ""} ${isIdle ? "idle" : ""} ${isCompleted ? "completed" : ""}`}>
       <div className="cat-color" style={{ background: category.color }} />
       <div className="cat-main">
         <div className="cat-header">
@@ -788,7 +817,7 @@ function CategoryRow({
                 {inPomo && <span className="pomo-badge">Pomo {fmtMmSs(pomoLeft)}</span>}
               </span>
               <span className="cat-times">
-                <span className={`cat-spent ${over ? "danger" : ""}`}>{fmtDuration(liveSpent)}</span>
+                <span className="cat-spent">{fmtDuration(displaySpent)}</span>
                 {!isIdle && (
                   <>
                     <span className="cat-sep"> / </span>
@@ -801,25 +830,28 @@ function CategoryRow({
         </div>
         <div className="cat-bar">
           <div
-            className={`cat-bar-fill ${over ? "danger" : ""}`}
-            style={{ width: `${Math.min(pct, 100)}%`, background: category.color }}
+            className="cat-bar-fill"
+            style={{ width: `${pct}%`, background: category.color }}
           />
-          {over && (
-            <div
-              className="cat-bar-over"
-              style={{ width: `${Math.min(pct - 100, 100)}%` }}
-            />
-          )}
         </div>
         <div className="cat-meta">
           {isCompleted ? (
-            <span className="completed-text">
-              ✓ Done · {fmtBudget(category.budgetSec - category.spentSec)} returned to Open
-            </span>
+            category.budgetSec > category.spentSec ? (
+              <span className="completed-text">
+                ✓ Done · {fmtBudget(category.budgetSec - category.spentSec)} under budget
+              </span>
+            ) : (
+              <span className="completed-text">✓ Done</span>
+            )
           ) : isIdle ? (
-            <span className="muted-text">Auto-tracked · downtime + over-budget</span>
-          ) : over ? (
-            <span className="danger">Over by {fmtDuration(liveSpent - category.budgetSec)}</span>
+            <span className="muted-text">
+              Auto-tracked · downtime
+              {overflowFromOthers && overflowFromOthers > 0
+                ? ` + ${fmtDuration(overflowFromOthers)} from over-budget`
+                : ""}
+            </span>
+          ) : atBudget ? (
+            <span className="muted">Budget reached · overflow goes to Idle</span>
           ) : (
             <span>{fmtDuration(remaining)} left</span>
           )}
@@ -850,7 +882,7 @@ function CategoryRow({
                   </button>
                 )}
                 {showDoneButton && (
-                  <button className="btn-done" onClick={onComplete} title="Mark complete and return remaining budget to Open">Done</button>
+                  <button className="btn-done" onClick={onComplete} title="Mark complete and return any unused budget">Done</button>
                 )}
                 <button className="btn-icon" onClick={beginEdit}>Edit</button>
                 <button className="btn-icon btn-danger" onClick={onRemove} aria-label="Remove">×</button>
