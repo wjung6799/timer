@@ -1446,3 +1446,92 @@
     color: inherit;
   }
 }
+
+/* =============================================================
+   Free-time hero
+   ============================================================= */
+
+.hero {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px 24px;
+  margin-bottom: 14px;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 200% at 100% 0%, rgba(79, 70, 229, 0.18), transparent 50%);
+  pointer-events: none;
+}
+.hero.hero-danger::before {
+  background: radial-gradient(120% 200% at 100% 0%, rgba(239, 68, 68, 0.18), transparent 50%);
+}
+.hero-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 6px;
+  position: relative;
+}
+.hero-value {
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--accent);
+  margin-bottom: 10px;
+  position: relative;
+}
+.hero.hero-danger .hero-value { color: var(--danger); }
+.hero-deltas {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  position: relative;
+  color: var(--text-dim);
+}
+.delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.delta b { font-weight: 600; }
+.delta.up b { color: var(--success); }
+.delta.down b { color: var(--warn); }
+.hero.hero-danger .delta.down b { color: var(--danger); }
+
+.hero-detail {
+  margin: 0 0 16px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.hero-detail b {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.day-bar-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px 14px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 640px) {
+  .hero { padding: 18px 18px; }
+  .hero-value { font-size: 44px; }
+  .hero-deltas { gap: 10px; font-size: 12px; }
+  .day-bar-card { padding: 14px 16px 12px; }
+}

@@ -88,15 +88,11 @@ export function pomoSecOf(c: Category): number {
 }
 
 export function ensureSpecialCategories(cats: Category[]): Category[] {
-  // Strip any legacy Float buffer categories that may exist in saved state.
-  let r = (cats as Array<Category & { isBuffer?: boolean }>).filter((c) => !c.isBuffer);
-  if (!r.some((c) => c.isIdle)) {
-    r = [
-      ...r,
-      { id: cryptoId(), name: "Idle", budgetSec: 0, spentSec: 0, color: IDLE_COLOR, isIdle: true },
-    ];
-  }
-  return r;
+  // Strip legacy Float buffer and Idle categories — neither is rendered any
+  // more (Idle is now a computed value shown on the Free-time hero card).
+  return (cats as Array<Category & { isBuffer?: boolean }>).filter(
+    (c) => !c.isBuffer && !c.isIdle,
+  );
 }
 
 export const PALETTE = [
@@ -256,14 +252,20 @@ export function fmtDuration(sec: number): string {
 }
 
 export function fmtBudget(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
+  const a = Math.abs(Math.floor(sec));
+  const h = Math.floor(a / 3600);
+  const m = Math.floor((a % 3600) / 60);
+  const s = a % 60;
   const parts: string[] = [];
   if (h) parts.push(`${h}h`);
   if (m) parts.push(`${m}m`);
   if (s && !h) parts.push(`${s}s`);
   return parts.join(" ") || "0m";
+}
+
+export function fmtSignedBudget(sec: number): string {
+  if (sec < 0) return `−${fmtBudget(Math.abs(sec))}`;
+  return fmtBudget(sec);
 }
 
 export function parseBudget(input: string): number | null {

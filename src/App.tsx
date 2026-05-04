@@ -17,6 +17,7 @@ import {
   ensureSpecialCategories,
   fmtBudget,
   fmtDuration,
+  fmtSignedBudget,
   normalizeRemoteState,
   parseBudget,
   pomoSecOf,
@@ -390,34 +391,27 @@ function BudgetApp({
   };
 
   const userCats = state.categories.filter((c) => !c.isIdle);
-  const totalSpent = userCats.reduce(
-    (sum, c) => sum + Math.min(liveSpent(c, state, now), effectiveBudget(c)),
-    0,
-  );
   const nowDate = new Date(now);
   const secSinceMidnight =
     nowDate.getHours() * 3600 +
     nowDate.getMinutes() * 60 +
     nowDate.getSeconds();
-  const hoursLeft = DAY_SEC - secSinceMidnight;
+  const timeLeftSec = Math.max(0, DAY_SEC - secSinceMidnight);
   const coverage = computeCoverage(state, now);
-  const sumUserBudgets = userCats.reduce((sum, c) => sum + effectiveBudget(c), 0);
-  // Budget remaining = total unused budget across all user categories.
-  // Includes completed categories (their unspent portion counts as slack).
-  // Over-budget categories contribute 0.
-  const budgetRemainingSec = userCats.reduce(
-    (sum, c) => sum + Math.max(0, c.budgetSec - liveSpent(c, state, now)),
+
+  // Free time = unallocated start + savings from finishing under budget − idle.
+  const plannedSec = userCats.reduce((sum, c) => sum + c.budgetSec, 0);
+  const freeStartSec = Math.max(0, DAY_SEC - plannedSec);
+  const savedSec = userCats.reduce(
+    (sum, c) => (c.completed ? sum + Math.max(0, c.budgetSec - c.spentSec) : sum),
     0,
   );
-  const accountedSec = userCats.reduce(
-    (sum, c) => sum + Math.min(liveSpent(c, state, now), effectiveBudget(c)),
+  const usedSec = userCats.reduce(
+    (sum, c) => sum + Math.min(liveSpent(c, state, now), c.budgetSec),
     0,
   );
-  const overflowSec = userCats.reduce(
-    (sum, c) => sum + Math.max(0, liveSpent(c, state, now) - effectiveBudget(c)),
-    0,
-  );
-  const idleSec = Math.max(0, secSinceMidnight - accountedSec);
+  const idledSec = Math.max(0, secSinceMidnight - usedSec);
+  const freeSec = freeStartSec + savedSec - idledSec;
 
   return (
     <div className="app">
@@ -466,35 +460,33 @@ function BudgetApp({
 
       {view === "today" ? (
         <>
-          <section className="day-summary">
-            <DayBar categories={state.categories} state={state} now={now} coverage={coverage} />
-            <div className="day-stats">
-              <Stat
-                label="Budget remaining"
-                value={fmtDuration(budgetRemainingSec)}
-                accent={
-                  budgetRemainingSec === 0
-                    ? "danger"
-                    : budgetRemainingSec < 1800
-                      ? "warn"
-                      : undefined
-                }
-              />
-              <Stat label="Spent today" value={fmtDuration(totalSpent)} />
-              <Stat label="Hours left" value={fmtDuration(hoursLeft)} />
-              {coverage.overAllottedBy > 0 && (
-                <Stat
-                  label="Over-allotted"
-                  value={fmtBudget(coverage.overAllottedBy)}
-                  accent="warn"
-                />
-              )}
+          <section className={`hero ${freeSec < 0 ? "hero-danger" : ""}`}>
+            <div className="hero-label">Free time today</div>
+            <div className="hero-value">{fmtSignedBudget(freeSec)}</div>
+            <div className="hero-deltas">
+              <span className="delta up">
+                Saved <b>{fmtBudget(savedSec)}</b>
+              </span>
+              <span className="delta down">
+                Idled <b>{fmtBudget(idledSec)}</b>
+              </span>
             </div>
           </section>
 
+          <p className="hero-detail">
+            <b>
+              Used {fmtBudget(usedSec)} / {fmtBudget(plannedSec)} planned
+            </b>{" "}
+            · {fmtBudget(timeLeftSec)} left in day
+          </p>
+
+          <section className="day-bar-card">
+            <DayBar categories={state.categories} state={state} now={now} coverage={coverage} />
+          </section>
+
           <section className="categories">
-            {state.categories.map((c) => {
-              const spent = c.isIdle ? idleSec : liveSpent(c, state, now);
+            {state.categories.filter((c) => !c.isIdle).map((c) => {
+              const spent = liveSpent(c, state, now);
               return (
                 <CategoryRow
                   key={c.id}
@@ -504,7 +496,6 @@ function BudgetApp({
                   coverage={coverage}
                   pomoEndAt={state.activeId === c.id ? state.pomoEndAt : null}
                   now={now}
-                  overflowFromOthers={c.isIdle ? overflowSec : undefined}
                   onStart={() => startTimer(c.id)}
                   onPomo={() => startPomodoro(c.id)}
                   onStop={stopTimer}
@@ -691,7 +682,6 @@ function CategoryRow({
   coverage,
   pomoEndAt,
   now,
-  overflowFromOthers,
   onStart,
   onPomo,
   onStop,
@@ -706,7 +696,6 @@ function CategoryRow({
   coverage: Coverage;
   pomoEndAt: number | null;
   now: number;
-  overflowFromOthers?: number;
   onStart: () => void;
   onPomo: () => void;
   onStop: () => void;
@@ -716,18 +705,15 @@ function CategoryRow({
   onReopen: () => void;
 }) {
   void coverage;
-  const isIdle = !!category.isIdle;
   const isCompleted = !!category.completed;
   const displayBudget = category.budgetSec;
-  // Visual cap: never show spent above the budget; the overage is surfaced
-  // on the Idle row via `overflowFromOthers`.
-  const displaySpent = isIdle
-    ? liveSpent
-    : Math.min(liveSpent, displayBudget);
+  // Visual cap: never show spent above the budget; overage is reflected in
+  // the "Idled" delta on the Free-time hero card.
+  const displaySpent = Math.min(liveSpent, displayBudget);
   const inPomo = isActive && pomoEndAt != null;
   const pomoLeft = inPomo ? Math.max(0, Math.ceil((pomoEndAt! - now) / 1000)) : 0;
-  const showPomoButton = !isIdle && !isCompleted && category.budgetSec >= 3600;
-  const showDoneButton = !isIdle && !isCompleted;
+  const showPomoButton = !isCompleted && category.budgetSec >= 3600;
+  const showDoneButton = !isCompleted;
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(category.name);
@@ -735,12 +721,9 @@ function CategoryRow({
   const [pomo, setPomo] = useState(fmtBudget(pomoSecOf(category)));
   const [editErr, setEditErr] = useState<string | null>(null);
 
-  const pct = isIdle
-    ? Math.min(100, (liveSpent / DAY_SEC) * 100)
-    : displayBudget > 0
-      ? Math.min(100, (displaySpent / displayBudget) * 100)
-      : 0;
-  const atBudget = !isIdle && !isCompleted && liveSpent >= category.budgetSec;
+  const pct =
+    displayBudget > 0 ? Math.min(100, (displaySpent / displayBudget) * 100) : 0;
+  const atBudget = !isCompleted && liveSpent >= category.budgetSec;
   const remaining = Math.max(0, displayBudget - liveSpent);
 
   const beginEdit = () => {
@@ -772,7 +755,7 @@ function CategoryRow({
   };
 
   return (
-    <div className={`category ${isActive ? "active" : ""} ${atBudget ? "at-budget" : ""} ${isIdle ? "idle" : ""} ${isCompleted ? "completed" : ""}`}>
+    <div className={`category ${isActive ? "active" : ""} ${atBudget ? "at-budget" : ""} ${isCompleted ? "completed" : ""}`}>
       <div className="cat-color" style={{ background: category.color }} />
       <div className="cat-main">
         <div className="cat-header">
@@ -819,12 +802,8 @@ function CategoryRow({
               </span>
               <span className="cat-times">
                 <span className="cat-spent">{fmtDuration(displaySpent)}</span>
-                {!isIdle && (
-                  <>
-                    <span className="cat-sep"> / </span>
-                    <span className="cat-budget">{fmtBudget(displayBudget)}</span>
-                  </>
-                )}
+                <span className="cat-sep"> / </span>
+                <span className="cat-budget">{fmtBudget(displayBudget)}</span>
               </span>
             </>
           )}
@@ -839,27 +818,20 @@ function CategoryRow({
           {isCompleted ? (
             category.budgetSec > category.spentSec ? (
               <span className="completed-text">
-                ✓ Done · {fmtBudget(category.budgetSec - category.spentSec)} under budget
+                ✓ Done · saved {fmtBudget(category.budgetSec - category.spentSec)} → Free
               </span>
             ) : (
               <span className="completed-text">✓ Done</span>
             )
-          ) : isIdle ? (
-            <span className="muted-text">
-              Auto-tracked · downtime
-              {overflowFromOthers && overflowFromOthers > 0
-                ? ` + ${fmtDuration(overflowFromOthers)} from over-budget`
-                : ""}
-            </span>
           ) : atBudget ? (
-            <span className="muted">Budget reached · overflow goes to Idle</span>
+            <span className="muted">Budget reached</span>
           ) : (
             <span>{fmtDuration(remaining)} left</span>
           )}
         </div>
       </div>
       <div className="cat-actions">
-        {!editing && !isIdle && (
+        {!editing && (
           <>
             {isCompleted ? (
               <>

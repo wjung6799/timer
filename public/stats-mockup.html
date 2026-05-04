@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stats redesign — mockup</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --surface: #181b22;
+      --surface-2: #1f232c;
+      --border: #2a2f3a;
+      --text: #e6e9ef;
+      --text-dim: #9aa3b2;
+      --text-faint: #6b7280;
+      --accent: #4f46e5;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+      --success: #10b981;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f7f8fa;
+        --surface: #ffffff;
+        --surface-2: #f1f3f7;
+        --border: #e2e5eb;
+        --text: #0f172a;
+        --text-dim: #475569;
+        --text-faint: #94a3b8;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 32px 24px 80px;
+    }
+    .wrap {
+      max-width: 760px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 26px;
+      margin: 0 0 4px;
+      letter-spacing: -0.02em;
+      font-weight: 600;
+    }
+    .lede {
+      color: var(--text-dim);
+      margin: 0 0 32px;
+      font-size: 14px;
+    }
+    h2 {
+      font-size: 12px;
+      color: var(--text-faint);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 32px 0 8px;
+      font-weight: 600;
+    }
+    .caption {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin: 0 0 10px;
+    }
+
+    .day-summary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .day-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+    }
+    .stat {
+      background: var(--surface-2);
+      border-radius: 8px;
+      padding: 12px 14px;
+      border-left: 3px solid transparent;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    .stat-value {
+      font-size: 20px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+    }
+    .stat-sub {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-success {
+      border-left-color: var(--success);
+    }
+    .stat-success .stat-value { color: var(--success); }
+    .stat-danger {
+      border-left-color: var(--danger);
+    }
+    .stat-danger .stat-value { color: var(--danger); }
+    .stat-accent {
+      border-left-color: var(--accent);
+    }
+    .stat-accent .stat-value { color: var(--accent); }
+
+    .progress {
+      width: 100%;
+      height: 4px;
+      background: var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.3s;
+    }
+    .progress-fill.success { background: var(--success); }
+
+    .pill {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--text-faint);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 500;
+      vertical-align: 2px;
+      margin-left: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Stats redesign — Pace / Used / Time left</h1>
+    <p class="lede">Three orthogonal numbers: forward-looking status, progress on plan, clock remaining.</p>
+
+    <h2>Current — what you ship today</h2>
+    <p class="caption">Three stats with overlapping meanings. "Hours left" is wall clock; "Budget remaining" is unspent budget; "Spent today" is min(spent, budget) summed.</p>
+    <div class="day-summary">
+      <div class="day-stats">
+        <div class="stat">
+          <div class="stat-label">Budget remaining</div>
+          <div class="stat-value">06:10:09</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Spent today</div>
+          <div class="stat-value">13:48:51</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Hours left</div>
+          <div class="stat-value">00:28:02</div>
+        </div>
+      </div>
+    </div>
+
+    <h2>Proposed</h2>
+
+    <p class="caption">State 1 · Early afternoon. Comfortably ahead — clock has more room than the remaining plan.</p>
+    <div class="day-summary">
+      <div class="day-stats">
+        <div class="stat stat-accent">
+          <div class="stat-label">Status</div>
+          <div class="stat-value">On track</div>
+          <div class="stat-sub">+1h 14m slack</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Used</div>
+          <div class="stat-value">4h 48m / 20h</div>
+          <div class="progress"><div class="progress-fill" style="width: 24%"></div></div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Time left</div>
+          <div class="stat-value">11:02</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="caption">State 2 · Late evening. Behind — remaining plan won't fit before midnight.</p>
+    <div class="day-summary">
+      <div class="day-stats">
+        <div class="stat stat-danger">
+          <div class="stat-label">Status</div>
+          <div class="stat-value">Behind</div>
+          <div class="stat-sub">−5h 43m</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Used</div>
+          <div class="stat-value">13h 48m / 20h</div>
+          <div class="progress"><div class="progress-fill" style="width: 69%"></div></div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Time left</div>
+          <div class="stat-value">0:28</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="caption">State 3 · Fresh morning. Plenty of slack.</p>
+    <div class="day-summary">
+      <div class="day-stats">
+        <div class="stat stat-accent">
+          <div class="stat-label">Status</div>
+          <div class="stat-value">On track</div>
+          <div class="stat-sub">+4h slack</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Used</div>
+          <div class="stat-value">0h / 20h</div>
+          <div class="progress"><div class="progress-fill" style="width: 0%"></div></div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Time left</div>
+          <div class="stat-value">24:00</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="caption">State 4 · Day's done. All categories completed; under-budget across the board.</p>
+    <div class="day-summary">
+      <div class="day-stats">
+        <div class="stat stat-success">
+          <div class="stat-label">Status</div>
+          <div class="stat-value">Complete</div>
+          <div class="stat-sub">6h 11m under budget</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Used</div>
+          <div class="stat-value">13h 48m / 20h</div>
+          <div class="progress"><div class="progress-fill success" style="width: 69%"></div></div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Time left</div>
+          <div class="stat-value">0:28</div>
+        </div>
+      </div>
+    </div>
+
+    <h2>Math</h2>
+    <p class="caption" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6;">
+      timeStillNeeded = Σ max(0, budget − spent)  for non-completed cats<br>
+      timeLeft = secondsUntilDayEnd<br>
+      slack = timeLeft − timeStillNeeded<br>
+      used = Σ min(spent, budget)  ·  planned = Σ budget<br>
+      <br>
+      slack ≥ 0  → <span style="color:var(--accent)">On track</span>, sub = "+Xh slack"<br>
+      slack &lt; 0  → <span style="color:var(--danger)">Behind</span>, sub = "−Xh"<br>
+      all done    → <span style="color:var(--success)">Complete</span>, sub = "Xh under budget"
+    </p>
+  </div>
+</body>
+</html>
