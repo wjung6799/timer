@@ -178,6 +178,26 @@ function BudgetApp({
     return () => window.clearInterval(id);
   }, [userId]);
 
+  // Auto-stop when the active category reaches its budget; remaining time
+  // beyond budget is naturally absorbed into Idle by the accountedSec math.
+  useEffect(() => {
+    if (!state || !state.activeId || !state.activeStartedAt) return;
+    const active = state.categories.find((c) => c.id === state.activeId);
+    if (!active || active.isIdle || active.budgetSec <= 0) return;
+    if (liveSpent(active, state, now) < active.budgetSec) return;
+    setState((s) => {
+      if (!s || !s.activeId || !s.activeStartedAt) return s;
+      const c = s.categories.find((x) => x.id === s.activeId);
+      if (!c) return s;
+      // Stop exactly when liveSpent hits budget (no overage on the category).
+      const remaining = c.budgetSec - c.spentSec;
+      const stopAtMs =
+        remaining > 0 ? s.activeStartedAt + remaining * 1000 : s.activeStartedAt;
+      if (!s.muted) playPomoDone();
+      return { ...commitActive(s, stopAtMs), pomoEndAt: null };
+    });
+  }, [now, state]);
+
   // Pomodoro auto-stop.
   useEffect(() => {
     if (!state || !state.activeId || state.pomoEndAt == null) return;
