@@ -402,12 +402,13 @@ function BudgetApp({
   const hoursLeft = DAY_SEC - secSinceMidnight;
   const coverage = computeCoverage(state, now);
   const sumUserBudgets = userCats.reduce((sum, c) => sum + effectiveBudget(c), 0);
-  // Budget remaining = unspent budget across categories you still plan to do.
-  // Completed and over-budget categories contribute 0.
-  const budgetRemainingSec = userCats.reduce((sum, c) => {
-    if (c.completed) return sum;
-    return sum + Math.max(0, c.budgetSec - liveSpent(c, state, now));
-  }, 0);
+  // Budget remaining = total unused budget across all user categories.
+  // Includes completed categories (their unspent portion counts as slack).
+  // Over-budget categories contribute 0.
+  const budgetRemainingSec = userCats.reduce(
+    (sum, c) => sum + Math.max(0, c.budgetSec - liveSpent(c, state, now)),
+    0,
+  );
   const accountedSec = userCats.reduce(
     (sum, c) => sum + Math.min(liveSpent(c, state, now), effectiveBudget(c)),
     0,
