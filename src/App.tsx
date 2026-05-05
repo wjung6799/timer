@@ -600,23 +600,6 @@ function SpeakerIcon({ muted }: { muted: boolean }) {
   );
 }
 
-function Stat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: "danger" | "warn" | "muted";
-}) {
-  return (
-    <div className={`stat ${accent ? `stat-${accent}` : ""}`}>
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-    </div>
-  );
-}
-
 function DayBar({
   categories,
   state,
