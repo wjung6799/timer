@@ -1,7 +1,27 @@
 import { useState } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
 import { supabase } from "./supabase";
 
 type Mode = "signin" | "signup";
+
+const native = Capacitor.isNativePlatform();
+const oauthRedirect = native ? "budgetapp://callback" : window.location.origin;
+
+async function startOAuth(provider: "google" | "apple"): Promise<string | null> {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo: oauthRedirect,
+      skipBrowserRedirect: native,
+    },
+  });
+  if (error) return error.message;
+  if (native && data?.url) {
+    await Browser.open({ url: data.url, presentationStyle: "popover" });
+  }
+  return null;
+}
 
 export default function Auth({ onClose }: { onClose?: () => void } = {}) {
   const [mode, setMode] = useState<Mode>("signin");
@@ -35,11 +55,14 @@ export default function Auth({ onClose }: { onClose?: () => void } = {}) {
 
   const google = async () => {
     setErr(null);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin },
-    });
-    if (error) setErr(error.message);
+    const errMsg = await startOAuth("google");
+    if (errMsg) setErr(errMsg);
+  };
+
+  const apple = async () => {
+    setErr(null);
+    const errMsg = await startOAuth("apple");
+    if (errMsg) setErr(errMsg);
   };
 
   const card = (
@@ -57,6 +80,9 @@ export default function Auth({ onClose }: { onClose?: () => void } = {}) {
       <h1>Time Budget</h1>
       <p className="auth-sub">{mode === "signup" ? "Create an account" : "Sign in"}</p>
 
+      <button type="button" className="btn-apple" onClick={apple} disabled={busy}>
+         Continue with Apple
+      </button>
       <button type="button" className="btn-google" onClick={google} disabled={busy}>
         Continue with Google
       </button>

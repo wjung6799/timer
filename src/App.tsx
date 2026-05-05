@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { Capacitor } from "@capacitor/core";
+import { App as CapApp } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
 import {
   type AppState,
   type Category,
@@ -27,6 +30,12 @@ import {
 } from "./types";
 import { playPomoDone, playStart, playStop, startAlarm } from "./sounds";
 import { archiveDay, deleteAccount, loadState, saveState, wipeAllData } from "./db";
+import {
+  cancelAllScheduled,
+  cancelCategoryNotifications,
+  scheduleBudgetReached,
+  schedulePomoEnd,
+} from "./notify";
 import { supabase } from "./supabase";
 import Auth from "./Auth";
 import History from "./History";
@@ -48,6 +57,43 @@ export default function App() {
       if (sess) setShowAuth(false);
     });
     return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Native deep-link handler for OAuth callbacks (budgetapp://callback#…).
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const handle = CapApp.addListener("appUrlOpen", async ({ url }) => {
+      if (!url.startsWith("budgetapp://")) return;
+      try {
+        const hashIdx = url.indexOf("#");
+        if (hashIdx >= 0) {
+          // Implicit flow: tokens in fragment.
+          const params = new URLSearchParams(url.slice(hashIdx + 1));
+          const access_token = params.get("access_token");
+          const refresh_token = params.get("refresh_token");
+          if (access_token && refresh_token) {
+            await supabase.auth.setSession({ access_token, refresh_token });
+          }
+        } else {
+          // PKCE flow: ?code=…
+          const queryIdx = url.indexOf("?");
+          if (queryIdx >= 0) {
+            const params = new URLSearchParams(url.slice(queryIdx + 1));
+            const code = params.get("code");
+            if (code) {
+              await supabase.auth.exchangeCodeForSession(code);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("OAuth callback failed:", e);
+      } finally {
+        Browser.close().catch(() => {});
+      }
+    });
+    return () => {
+      handle.then((h) => h.remove()).catch(() => {});
+    };
   }, []);
 
   if (!authReady) return <div className="app-loading">Loading…</div>;
@@ -195,6 +241,7 @@ function BudgetApp({
       const stopAtMs =
         remaining > 0 ? s.activeStartedAt + remaining * 1000 : s.activeStartedAt;
       if (!s.muted) playPomoDone();
+      cancelCategoryNotifications(s.activeId);
       return { ...commitActive(s, stopAtMs), pomoEndAt: null };
     });
   }, [now, state]);
@@ -239,22 +286,49 @@ function BudgetApp({
       if (!s) return s;
       const stopped = commitActive(s, Date.now());
       if (!s.muted) playStart();
-      return { ...stopped, activeId: id, activeStartedAt: Date.now(), pomoEndAt: null };
+      const target = stopped.categories.find((c) => c.id === id);
+      if (stopped.activeId) {
+        cancelCategoryNotifications(stopped.activeId);
+      }
+      cancelCategoryNotifications(id);
+      const startMs = Date.now();
+      if (target && target.budgetSec > 0) {
+        const remaining = target.budgetSec - target.spentSec;
+        if (remaining > 0) {
+          scheduleBudgetReached(id, target.name, startMs + remaining * 1000);
+        }
+      }
+      return { ...stopped, activeId: id, activeStartedAt: startMs, pomoEndAt: null };
     });
   };
 
   const startPomodoro = (id: string) => {
     setState((s) => {
       if (!s) return s;
-      const target = s.categories.find((c) => c.id === id);
-      const pomoMs = (target ? pomoSecOf(target) : DEFAULT_POMO_SEC) * 1000;
       const stopped = commitActive(s, Date.now());
+      const target = stopped.categories.find((c) => c.id === id);
+      const pomoSec = target ? pomoSecOf(target) : DEFAULT_POMO_SEC;
       if (!s.muted) playStart();
+      if (stopped.activeId) {
+        cancelCategoryNotifications(stopped.activeId);
+      }
+      cancelCategoryNotifications(id);
+      const startMs = Date.now();
+      const pomoEndAt = startMs + pomoSec * 1000;
+      if (target) {
+        schedulePomoEnd(id, target.name, pomoEndAt);
+        if (target.budgetSec > 0) {
+          const remaining = target.budgetSec - target.spentSec;
+          if (remaining > 0) {
+            scheduleBudgetReached(id, target.name, startMs + remaining * 1000);
+          }
+        }
+      }
       return {
         ...stopped,
         activeId: id,
-        activeStartedAt: Date.now(),
-        pomoEndAt: Date.now() + pomoMs,
+        activeStartedAt: startMs,
+        pomoEndAt,
       };
     });
   };
@@ -262,7 +336,10 @@ function BudgetApp({
   const stopTimer = () => {
     setState((s) => {
       if (!s) return s;
-      if (s.activeId && !s.muted) playStop();
+      if (s.activeId) {
+        if (!s.muted) playStop();
+        cancelCategoryNotifications(s.activeId);
+      }
       return { ...commitActive(s, Date.now()), pomoEndAt: null };
     });
   };
@@ -291,6 +368,7 @@ function BudgetApp({
   };
 
   const removeCategory = (id: string) => {
+    cancelCategoryNotifications(id);
     setState((s) => {
       if (!s) return s;
       const stopped = s.activeId === id ? { ...commitActive(s, Date.now()), pomoEndAt: null } : s;
@@ -309,6 +387,7 @@ function BudgetApp({
   };
 
   const completeCategory = (id: string) => {
+    cancelCategoryNotifications(id);
     setState((s) => {
       if (!s) return s;
       const stopped = s.activeId === id ? { ...commitActive(s, Date.now()), pomoEndAt: null } : s;
@@ -339,6 +418,7 @@ function BudgetApp({
         console.error("Final save failed:", e);
       }
     }
+    await cancelAllScheduled();
     await supabase.auth.signOut();
   };
 

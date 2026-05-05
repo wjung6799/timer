@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — Time Budget</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --surface: #181b22;
+      --text: #e6e9ef;
+      --text-dim: #9aa3b2;
+      --border: #2a2f3a;
+      --accent: #4f46e5;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f7f8fa;
+        --surface: #ffffff;
+        --text: #0f172a;
+        --text-dim: #475569;
+        --border: #e2e5eb;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 4px; }
+    .updated { color: var(--text-dim); font-size: 13px; margin-bottom: 28px; }
+    h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin: 28px 0 8px; }
+    p, ul { color: var(--text-dim); }
+    ul { padding-left: 22px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: 2026-05-04</p>
+
+  <p>
+    Time Budget is a personal time-tracking app. This policy explains what
+    data the app handles, where it goes, and your rights.
+  </p>
+
+  <h2>What data we collect</h2>
+  <ul>
+    <li>
+      <strong>Account identifier and email address</strong> — only if you sign
+      in. Used to authenticate you and let you sync data across devices.
+    </li>
+    <li>
+      <strong>Your time-budget data</strong> — categories, budgets, timer
+      activity, and daily history that you create inside the app. Stored under
+      your account so it persists across sessions and devices.
+    </li>
+  </ul>
+
+  <p>
+    If you choose <em>not</em> to sign in, your data lives only on your device
+    in browser local storage and is not transmitted to any server.
+  </p>
+
+  <h2>What we do not collect</h2>
+  <ul>
+    <li>No location, contacts, photos, microphone, or camera access.</li>
+    <li>No tracking across other apps or websites. No advertising IDs.</li>
+    <li>No third-party analytics or marketing trackers.</li>
+  </ul>
+
+  <h2>Where your data is stored</h2>
+  <p>
+    Authenticated user data is stored in <a href="https://supabase.com/" target="_blank" rel="noreferrer">Supabase</a>,
+    a managed Postgres database service. Row-level security policies ensure each user can
+    only read or write their own rows. Data in transit is encrypted via HTTPS;
+    data at rest is encrypted by Supabase's infrastructure.
+  </p>
+
+  <h2>Sign-in providers</h2>
+  <p>
+    The app offers Sign in with Apple, Sign in with Google, and email/password.
+    When you sign in via a third-party provider, that provider sends us your
+    email address and a stable identifier so we can recognize you. We do not
+    receive your contacts, friends, or any other profile data.
+  </p>
+
+  <h2>Notifications</h2>
+  <p>
+    The app may schedule local notifications on your device to alert you when
+    a category reaches its budget or a Pomodoro session ends. These run
+    entirely on your device and are not sent through any external server.
+  </p>
+
+  <h2>Your rights</h2>
+  <ul>
+    <li>
+      <strong>Delete your data</strong> — Settings → Clear all data wipes your
+      categories and history.
+    </li>
+    <li>
+      <strong>Delete your account</strong> — Settings → Delete account
+      permanently removes your account and all associated data from our database.
+      This is immediate and irreversible.
+    </li>
+    <li>
+      <strong>Sign out</strong> — at any time. Local data on the device may
+      remain unless you also Clear all data.
+    </li>
+  </ul>
+
+  <h2>Children's privacy</h2>
+  <p>
+    Time Budget is not directed to children under 13 and we do not knowingly
+    collect personal information from them.
+  </p>
+
+  <h2>Changes to this policy</h2>
+  <p>
+    If this policy changes materially, the "Last updated" date above will
+    change and we'll surface the change in the app where appropriate.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions or requests: <code>wjung6799@gmail.com</code>.
+  </p>
+</body>
+</html>
