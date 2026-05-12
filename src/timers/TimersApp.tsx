@@ -269,13 +269,7 @@ export default function TimersApp({
         <section className="timer-stage">
           {active ? (
             <>
-              <VisualTimer
-                remaining={remaining}
-                total={active.durationSec}
-                color={active.color}
-                label={active.name}
-                paused={paused}
-              />
+              <VisualTimer remaining={remaining} color={active.color} label={active.name} paused={paused} />
               <div className="timer-active-meta">
                 {fmtBudget(active.durationSec)} timer · {paused ? "paused" : "running"}
               </div>
@@ -297,7 +291,7 @@ export default function TimersApp({
             </>
           ) : (
             <div className="timer-stage-empty">
-              <div className="vtimer-empty-disk" aria-hidden="true" />
+              <VisualTimer remaining={0} color="var(--text-faint)" idle />
               <p>Pick a timer below to start.</p>
             </div>
           )}
