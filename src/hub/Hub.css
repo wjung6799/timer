@@ -1,0 +1,61 @@
+.hub-tagline {
+  color: var(--text-dim);
+  margin: -8px 0 28px;
+}
+
+.hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.hub-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.15s, transform 0.1s, background 0.15s;
+}
+
+a.hub-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.hub-card-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.hub-card-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.hub-card-title em {
+  font-style: normal;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.hub-card-blurb {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.hub-card-soon {
+  opacity: 0.55;
+  cursor: default;
+}

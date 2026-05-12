@@ -11,6 +11,12 @@
   margin-bottom: 24px;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .header-right {
   display: flex;
   align-items: center;

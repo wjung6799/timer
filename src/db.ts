@@ -128,14 +128,17 @@ export async function wipeAllData(userId: string | null): Promise<void> {
   if (!userId) {
     localStorage.removeItem(LS_STATE_KEY);
     localStorage.removeItem(LS_HISTORY_KEY);
+    localStorage.removeItem("timers.state");
     return;
   }
-  const [stateRes, histRes] = await Promise.all([
+  const [stateRes, histRes, timersRes] = await Promise.all([
     supabase.from("app_state").delete().eq("user_id", userId),
     supabase.from("day_history").delete().eq("user_id", userId),
+    supabase.from("timers_state").delete().eq("user_id", userId),
   ]);
   if (stateRes.error) throw stateRes.error;
   if (histRes.error) throw histRes.error;
+  if (timersRes.error) throw timersRes.error;
 }
 
 // Permanently deletes the signed-in user's auth row.

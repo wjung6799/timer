@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
-import { Capacitor } from "@capacitor/core";
-import { App as CapApp } from "@capacitor/app";
-import { Browser } from "@capacitor/browser";
+import { Link } from "react-router-dom";
 import {
   type AppState,
   type Category,
@@ -37,82 +34,11 @@ import {
   schedulePomoEnd,
 } from "./notify";
 import { supabase } from "./supabase";
-import Auth from "./Auth";
 import History from "./History";
 import Settings from "./Settings";
 import "./App.css";
 
-export default function App() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [authReady, setAuthReady] = useState(false);
-  const [showAuth, setShowAuth] = useState(false);
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setAuthReady(true);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
-      setSession(sess);
-      if (sess) setShowAuth(false);
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
-  // Native deep-link handler for OAuth callbacks (budgetapp://callback#…).
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    const handle = CapApp.addListener("appUrlOpen", async ({ url }) => {
-      if (!url.startsWith("budgetapp://")) return;
-      try {
-        const hashIdx = url.indexOf("#");
-        if (hashIdx >= 0) {
-          // Implicit flow: tokens in fragment.
-          const params = new URLSearchParams(url.slice(hashIdx + 1));
-          const access_token = params.get("access_token");
-          const refresh_token = params.get("refresh_token");
-          if (access_token && refresh_token) {
-            await supabase.auth.setSession({ access_token, refresh_token });
-          }
-        } else {
-          // PKCE flow: ?code=…
-          const queryIdx = url.indexOf("?");
-          if (queryIdx >= 0) {
-            const params = new URLSearchParams(url.slice(queryIdx + 1));
-            const code = params.get("code");
-            if (code) {
-              await supabase.auth.exchangeCodeForSession(code);
-            }
-          }
-        }
-      } catch (e) {
-        console.error("OAuth callback failed:", e);
-      } finally {
-        Browser.close().catch(() => {});
-      }
-    });
-    return () => {
-      handle.then((h) => h.remove()).catch(() => {});
-    };
-  }, []);
-
-  if (!authReady) return <div className="app-loading">Loading…</div>;
-  const userId = session?.user.id ?? null;
-  const email = session?.user.email ?? null;
-  return (
-    <>
-      <BudgetApp
-        key={userId ?? "local"}
-        userId={userId}
-        email={email}
-        onSignIn={() => setShowAuth(true)}
-      />
-      {showAuth && <Auth onClose={() => setShowAuth(false)} />}
-    </>
-  );
-}
-
-function BudgetApp({
+export function BudgetApp({
   userId,
   email,
   onSignIn,
@@ -496,7 +422,12 @@ function BudgetApp({
   return (
     <div className="app">
       <header className="header">
-        <h1>Time Budget</h1>
+        <div className="header-left">
+          <Link className="btn-icon" to="/">
+            ← Hub
+          </Link>
+          <h1>Time Budget</h1>
+        </div>
         <div className="header-right">
           <button
             className={`btn-icon ${view === "history" ? "btn-active" : ""}`}
@@ -782,6 +713,7 @@ function CategoryRow({
   const [name, setName] = useState(category.name);
   const [budget, setBudget] = useState(fmtBudget(displayBudget));
   const [pomo, setPomo] = useState(fmtBudget(pomoSecOf(category)));
+  const [spent, setSpent] = useState(fmtBudget(category.spentSec));
   const [editErr, setEditErr] = useState<string | null>(null);
 
   const pct =
@@ -793,6 +725,7 @@ function CategoryRow({
     setName(category.name);
     setBudget(fmtBudget(displayBudget));
     setPomo(fmtBudget(pomoSecOf(category)));
+    setSpent(fmtBudget(category.spentSec));
     setEditErr(null);
     setEditing(true);
   };
@@ -808,10 +741,16 @@ function CategoryRow({
       setEditErr("Pomo like '25m', '50m'");
       return;
     }
+    const newSpent = parseBudget(spent);
+    if (newSpent == null || newSpent < 0) {
+      setEditErr("Spent like '0', '30m', '8h'");
+      return;
+    }
     onUpdate({
       name: name.trim() || category.name,
       budgetSec: newBudget,
       pomoSec: newPomo,
+      spentSec: newSpent,
     });
     setEditErr(null);
     setEditing(false);
@@ -849,6 +788,18 @@ function CategoryRow({
                   onChange={(e) => setPomo(e.target.value)}
                   placeholder="e.g. 25m"
                   aria-label="Pomodoro length"
+                />
+              </label>
+              <label className="cat-edit-field">
+                <span className="cat-edit-label">Spent</span>
+                <input
+                  className="cat-budget-input"
+                  value={spent}
+                  onChange={(e) => setSpent(e.target.value)}
+                  placeholder="e.g. 8h"
+                  aria-label="Spent override"
+                  title={isActive ? "Stop the timer first to override spent time" : "Override the spent time"}
+                  disabled={isActive}
                 />
               </label>
               <div className="cat-edit-actions">

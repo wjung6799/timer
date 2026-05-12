@@ -91,6 +91,17 @@ export async function schedulePomoEnd(
   );
 }
 
+// The Timers module runs one countdown at a time, so a single fixed id is fine.
+const TIMER_NOTIF_ID = hash31("timers:active");
+
+export async function scheduleTimerEnd(name: string, fireAtMs: number): Promise<void> {
+  await scheduleAt(TIMER_NOTIF_ID, "Timer done", `${name} finished.`, fireAtMs);
+}
+
+export async function cancelTimerNotification(): Promise<void> {
+  await cancel(TIMER_NOTIF_ID);
+}
+
 export async function cancelCategoryNotifications(categoryId: string): Promise<void> {
   await cancel(budgetId(categoryId));
   await cancel(pomoId(categoryId));

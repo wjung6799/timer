@@ -1,0 +1,268 @@
+.timers .header {
+  align-items: center;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.header-left h1 {
+  font-size: 28px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+/* ---- time's-up banner ---- */
+.timer-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--warn);
+  color: #1a1206;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+.timer-banner .btn-icon {
+  background: rgba(0, 0, 0, 0.12);
+  border-color: rgba(0, 0, 0, 0.2);
+  color: #1a1206;
+}
+
+/* ---- two-column stage ---- */
+.timers-layout {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 20px;
+  align-items: start;
+  margin-bottom: 28px;
+}
+
+.timer-stage {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.vtimer {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.vtimer-track {
+  fill: var(--surface-2);
+  stroke: var(--border);
+  stroke-width: 2;
+}
+.vtimer-tick {
+  stroke: var(--text-faint);
+  stroke-width: 2;
+  opacity: 0.6;
+}
+.vtimer-hub {
+  fill: var(--text);
+}
+.vtimer-time {
+  fill: var(--text);
+  font-size: 46px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.vtimer-label {
+  fill: var(--text-dim);
+  font-size: 15px;
+}
+.vtimer-paused {
+  opacity: 0.7;
+}
+
+.timer-active-meta {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.timer-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn-danger-outline {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn-danger-outline:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.timer-stage-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 30px 0 40px;
+  color: var(--text-dim);
+}
+.vtimer-empty-disk {
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  border: 3px dashed var(--border);
+  background: var(--surface-2);
+}
+
+/* ---- tasks panel ---- */
+.tasks-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px 22px;
+}
+.tasks-panel h2,
+.timer-presets h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.tasks-empty {
+  color: var(--text-faint);
+  font-size: 14px;
+  margin: 4px 0 12px;
+}
+.task-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.task:last-child {
+  border-bottom: none;
+}
+.task-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  cursor: pointer;
+  font-size: 15px;
+}
+.task-label input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent);
+}
+.task.done .task-label span {
+  text-decoration: line-through;
+  color: var(--text-faint);
+}
+.task .btn-icon {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.task:hover .btn-icon {
+  opacity: 1;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 4px 0;
+  font-size: 13px;
+  text-decoration: underline;
+}
+.link-btn:hover {
+  background: none;
+  color: var(--text);
+}
+
+/* ---- preset list ---- */
+.timer-presets {
+  margin-bottom: 60px;
+}
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+.preset-row.active {
+  border-color: var(--accent);
+}
+.preset-row.editing {
+  flex-wrap: wrap;
+}
+.preset-row.editing input {
+  flex: 1;
+  min-width: 120px;
+}
+.preset-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.preset-main {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  background: transparent;
+  border: none;
+  padding: 6px 4px;
+  text-align: left;
+}
+.preset-main:hover {
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+.preset-name {
+  font-size: 15px;
+  font-weight: 500;
+}
+.preset-dur {
+  font-size: 14px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .timers-layout {
+    grid-template-columns: 1fr;
+  }
+  .header-left h1 {
+    font-size: 22px;
+  }
+}
