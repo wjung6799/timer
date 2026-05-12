@@ -16,6 +16,9 @@ import { loadTimersState, saveTimersState } from "./db";
 import VisualTimer from "./VisualTimer";
 import "./Timers.css";
 
+// Classic Time-Timer red, used for the drag-to-set dial and ad-hoc timers.
+const DIAL_COLOR = "#e8400f";
+
 export default function TimersApp({
   userId,
   email,
@@ -30,6 +33,7 @@ export default function TimersApp({
   const [state, setState] = useState<TimersState | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [finished, setFinished] = useState<string | null>(null);
+  const [draftSec, setDraftSec] = useState(25 * 60); // duration set via the dial
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const stateRef = useRef<TimersState | null>(null);
   stateRef.current = state;
@@ -132,6 +136,28 @@ export default function TimersApp({
     setFinished(null);
     if (!state.muted) playStart();
     scheduleTimerEnd(p.name, a.endsAt);
+  };
+
+  const startDraft = () => {
+    if (draftSec < 1) return;
+    const startMs = Date.now();
+    const a: ActiveTimer = {
+      presetId: "",
+      name: "Timer",
+      color: DIAL_COLOR,
+      durationSec: draftSec,
+      endsAt: startMs + draftSec * 1000,
+      pausedRemainingSec: null,
+    };
+    setState((s) => (s ? { ...s, active: a } : s));
+    setFinished(null);
+    if (!state.muted) playStart();
+    scheduleTimerEnd("Timer", a.endsAt);
+  };
+
+  const saveDraftAsPreset = () => {
+    if (draftSec < 1) return;
+    addPreset(`${Math.round(draftSec / 60)} min`, draftSec);
   };
 
   const pause = () => {
@@ -290,10 +316,19 @@ export default function TimersApp({
               </div>
             </>
           ) : (
-            <div className="timer-stage-empty">
-              <VisualTimer remaining={0} color="var(--text-faint)" idle />
-              <p>Pick a timer below to start.</p>
-            </div>
+            <>
+              <VisualTimer remaining={draftSec} color={DIAL_COLOR} onSet={setDraftSec} />
+              <div className="timer-active-meta">Drag the dial to set a timer</div>
+              <div className="timer-controls">
+                <button className="btn-primary" onClick={startDraft} disabled={draftSec < 60}>
+                  Start{draftSec >= 60 ? ` ${fmtClock(draftSec)}` : ""}
+                </button>
+                <button onClick={saveDraftAsPreset} disabled={draftSec < 60}>
+                  Save
+                </button>
+              </div>
+              <p className="timer-set-hint">…or pick one of your timers below</p>
+            </>
           )}
         </section>
 
